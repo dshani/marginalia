@@ -1,7 +1,5 @@
 # Marginalia
 
-A PDF reader for studying the way Andy Matuschak does in his "Introduction to Quantum Mechanics" video: you read, select a passage, and write a spaced-repetition prompt in the margin right next to it. Prompts from every book and deck come back for review on an Orbit-style schedule.
-
 Marginalia runs as a Mac app (see "Desktop app") or in a browser. Books, prompts, images and review history stay on this Mac: in the app's own folder, or in the browser's IndexedDB. Nothing is uploaded anywhere, except snips you send to Claude for LaTeX transcription.
 
 ## Run it
