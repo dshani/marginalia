@@ -2,7 +2,7 @@
 
 Marginalia is a PDF reader for studying. You read a book, select a passage, and write a question about it in the margin, next to the text. Marginalia asks you these questions again after some days, and then after longer and longer waits, so that you remember what you read. This method is called spaced repetition.
 
-The idea comes from Andy Matuschak, who writes such prompts while he reads. His guide [How to write good prompts](https://andymatuschak.org/prompts/) explains what makes a prompt good. Marginalia puts the book, the prompts and the review in one place.
+The idea comes from Andy Matuschak. His guide [How to write good prompts](https://andymatuschak.org/prompts/) explains what makes a prompt good. Marginalia puts the book, the prompts and the review in one place.
 
 Marginalia runs on your own computer. It has no account, no server on the internet and no tracking.
 
