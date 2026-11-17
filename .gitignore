@@ -1,0 +1,18 @@
+# What git leaves out. desktop/.gitignore lists what the build of the Mac app makes.
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# The bundles of `marginalia build`: the command writes them again
+/marginalia/dist/
+
+# The download cache of `marginalia build`
+/marginalia/tools/.cache/
+
+# Settings of one computer only
+/.claude/settings.local.json
+/CLAUDE.local.md

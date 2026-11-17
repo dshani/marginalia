@@ -1,0 +1,314 @@
+/* css/library.css — owned by js/library.js (BUILD-NOTES "CSS ownership").
+ * Home screen (SPEC §2 library: 880-px column, 56-px header, 40-px banner, BOOKS/DECKS labels, 64-px rows,
+ * footer), the deck page, the settings panel (right-side panel, tabs, shortcuts table with kbd caps and red
+ * conflict rows, password field, the Data tab's "Automatic backup" block), the generic .dialog / .dialog__* frame
+ * used by M.exporter.openDialog and the "Move to folder…" picker,
+ * the row ⋯ menu and the "Preparing document…" bar; the folders of FEATURES L1 (FOLDERS section, folder rows and
+ * groups, the indented contents, drag-and-drop targets, the picker); the desktop app's welcome card (FEATURES E2.2d,
+ * .lib-welcome). Colours, spacing and radii are the §13 tokens only.
+ * Mobile: nothing scrolls horizontally at 400 px. */
+
+/* ---------- home: structure (SPEC §2) ---------- */
+#library:not(.is-hidden) { display: block; min-height: 100vh; box-sizing: border-box; background: var(--bg); }
+#library.lib--dragover { outline: 2px dashed var(--focus); outline-offset: -8px; }
+.lib { max-width: 880px; margin: 0 auto; padding: 0 var(--s4) var(--s7); box-sizing: border-box; min-width: 0; }
+
+.lib__header {
+  min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: var(--s3);
+  padding: var(--s2) 0; border-bottom: 1px solid var(--line); flex-wrap: wrap;
+}
+.lib__title { margin: 0; font: 500 22px/28px var(--font-display); color: var(--ink); letter-spacing: -.01em; }
+.lib__header-actions { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.lib__review-all { white-space: nowrap; }
+.lib__gear { font-size: 16px; min-width: 32px; }
+
+.lib__banner {
+  min-height: 40px; display: flex; align-items: center; justify-content: space-between; gap: var(--s3);
+  padding: var(--s1) var(--s3); margin-top: var(--s3); box-sizing: border-box;
+  background: var(--surface-2); border-radius: var(--r2); color: var(--ink); font: 14px/20px var(--font-ui);
+}
+.lib__banner-btn { color: var(--accent); font-weight: 500; }
+
+.lib__section { margin-top: var(--s5); }
+.lib__label {
+  margin: 0 0 var(--s1); font: 500 12px/16px var(--font-display); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3);
+}
+.lib__empty { padding: var(--s4) 0; color: var(--ink-2); font: 14px/20px var(--font-ui); display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+.lib__sample { color: var(--accent); }
+.lib__sample-row { padding: var(--s2) 0 0; }
+
+/* ---------- the desktop app's welcome card (FEATURES E2.2d; js/library.js welcomeCard, M.desktop.welcome) ---------- */
+.lib-welcome {
+  margin-top: var(--s5); padding: var(--s4) var(--s5); box-sizing: border-box; min-width: 0;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r3);
+}
+.lib-welcome__title { margin: 0 0 var(--s2); font: 500 18px/24px var(--font-display); color: var(--ink); }
+.lib-welcome__lead { margin: 0 0 var(--s1); color: var(--ink-2); font: 14px/22px var(--font-ui); overflow-wrap: anywhere; }
+.lib-welcome__steps { margin: 0; padding: 0; list-style: none; color: var(--ink-2); font: 14px/22px var(--font-ui); }
+.lib-welcome__steps li { overflow-wrap: anywhere; }
+.lib-welcome__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); margin-top: var(--s4); }
+.lib-welcome__none { color: var(--ink-2); font: 13px/18px var(--font-ui); overflow-wrap: anywhere; }
+
+/* ---------- rows: 64 px ---------- */
+.lib-row {
+  min-height: 64px; display: flex; align-items: center; gap: var(--s3);
+  padding: var(--s2) 0; border-top: 1px solid var(--line); box-sizing: border-box;
+}
+.lib-row:first-of-type { border-top: 0; }
+.lib-row__main { flex: 1 1 auto; min-width: 0; }
+.lib-row__name { display: flex; align-items: center; gap: var(--s1); min-width: 0; }
+.lib-row__nick { font: 500 16px/22px var(--font-display); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-row__pen {
+  border: 0; background: transparent; color: var(--ink-3); cursor: pointer; padding: 0 var(--s1); font-size: 13px; line-height: 22px; border-radius: var(--r1);
+}
+.lib-row__pen:hover, .lib-row__pen:focus-visible { color: var(--ink); background: var(--surface-2); }
+.lib-row__pen:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.lib-row__meta { font: 13px/18px var(--font-ui); color: var(--ink-2); overflow-wrap: anywhere; }
+.lib-row__actions { display: flex; align-items: center; gap: var(--s2); flex: 0 0 auto; }
+.lib-row__more { min-width: 32px; font-size: 16px; letter-spacing: .05em; }
+
+.lib-rename {
+  width: 100%; max-width: 360px; height: 32px; padding: 0 var(--s2); box-sizing: border-box;
+  border: 1px solid var(--line); border-radius: var(--r1); background: var(--surface); color: var(--ink);
+  font: 500 16px/22px var(--font-display);
+}
+.lib-rename:focus { outline: 2px solid var(--focus); outline-offset: 0; }
+
+.lib__newdeck { display: flex; align-items: center; gap: var(--s2); padding: var(--s2) 0; flex-wrap: wrap; }
+.lib__newdeck-input { max-width: 320px; flex: 1 1 200px; }
+
+/* ---------- folders (FEATURES L1; BUILD-NOTES "Library folders") ---------- */
+/* a group = the folder's row, then (open) its sub-folders, books and decks, indented beside a guide line */
+.lib-folder { border-top: 1px solid var(--line); min-width: 0; }
+.lib__section--folders > .lib__label + .lib-folder, .lib-folder__body > .lib-folder:first-child { border-top: 0; }
+.lib-folder > .lib-row--folder { border-top: 0; }
+.lib-folder__body {
+  margin: 0 0 var(--s2) 7px; padding-left: var(--s4); border-left: 2px solid var(--line); min-width: 0;
+}
+.lib-folder__body > .lib-folder, .lib-folder__body > .lib-row { border-top: 1px solid var(--line); }
+.lib-folder__body > .lib-row:first-child { border-top: 0; }
+.lib-folder__empty { padding: var(--s3) 0; color: var(--ink-3); font: italic 13px/18px var(--font-ui); }
+.lib-folder__toggle {
+  display: inline-flex; align-items: center; gap: var(--s1); min-width: 0; max-width: 100%;
+  margin-left: calc(-1 * var(--s1)); padding: 0 var(--s1); border: 0; border-radius: var(--r1);
+  background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer;
+}
+.lib-folder__toggle:hover { background: var(--surface-2); }
+.lib-folder__toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.lib-folder__chevron { flex: 0 0 auto; width: 12px; color: var(--ink-3); font-size: 12px; line-height: 22px; text-align: center; }
+.lib-folder__glyph { flex: 0 0 auto; display: inline-flex; color: var(--ink-2); }
+.lib-folder__toggle .lib-row__nick { min-width: 0; }
+/* drag and drop: the row being dragged, and the folder or top-level section it would land in */
+.lib-row--dragging { opacity: .45; }
+.lib-folder.lib-drop--over > .lib-row--folder { background: var(--surface-2); box-shadow: inset 0 0 0 2px var(--focus); border-radius: var(--r2); }
+.lib__section.lib-drop--over { outline: 2px dashed var(--focus); outline-offset: 4px; border-radius: var(--r2); }
+.lib__newfolder { display: flex; align-items: center; gap: var(--s2); padding: var(--s2) 0; flex-wrap: wrap; }
+.lib__newfolder-input { max-width: 320px; flex: 1 1 200px; }
+/* "Move to folder…": the .dialog frame below, a list of folders as an indented tree (indent set inline per depth) */
+.lib-picker__panel { width: min(440px, 100%); }
+.lib-picker__list { display: flex; flex-direction: column; margin-top: var(--s2); max-height: min(60vh, 480px); overflow-y: auto; min-width: 0; }
+.lib-picker__item {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s2); width: 100%; min-width: 0;
+  padding: var(--s2) var(--s3); border: 0; border-radius: var(--r1); background: transparent; color: var(--ink);
+  font: 14px/20px var(--font-ui); text-align: left; cursor: pointer; box-sizing: border-box;
+}
+.lib-picker__item:not([disabled]):hover { background: var(--surface-2); }
+.lib-picker__item:focus-visible { background: var(--surface-2); outline: 2px solid var(--focus); outline-offset: -2px; }
+.lib-picker__item[disabled] { color: var(--ink-3); cursor: not-allowed; }
+.lib-picker__item[aria-checked="true"] { font-weight: 500; }
+.lib-picker__item--top { border-bottom: 1px solid var(--line); border-radius: var(--r1) var(--r1) 0 0; }
+.lib-picker__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-picker__here { flex: 0 0 auto; font: 500 11px/16px var(--font-ui); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); }
+
+/* ---------- footer ---------- */
+.lib__footer {
+  margin-top: var(--s6); padding-top: var(--s3); border-top: 1px solid var(--line);
+  display: flex; justify-content: space-between; align-items: baseline; gap: var(--s3); flex-wrap: wrap;
+  font: 13px/18px var(--font-ui); color: var(--ink-2);
+}
+.lib__storage { min-width: 0; overflow-wrap: anywhere; }
+.lib__storage-note { color: var(--ink-3); }
+.lib__links { white-space: nowrap; }
+.lib__link {
+  border: 0; background: transparent; padding: 0; color: var(--accent); font: inherit; cursor: pointer; text-decoration: none;
+}
+.lib__link:hover { text-decoration: underline; }
+.lib__link:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 2px; }
+
+/* ---------- ⋯ menu (home rows, deck page) ---------- */
+.lib-menu {
+  position: absolute; z-index: 30; min-width: 180px; padding: var(--s1) 0;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r2); box-shadow: var(--page-shadow);
+}
+.lib-menu__item {
+  display: block; width: 100%; text-align: left; border: 0; background: transparent; color: var(--ink);
+  padding: var(--s2) var(--s3); font: 14px/20px var(--font-ui); cursor: pointer;
+}
+.lib-menu__item:hover, .lib-menu__item:focus-visible { background: var(--surface-2); outline: none; }
+.lib-menu__item--danger { color: var(--danger); }
+.lib-menu__item[disabled] { color: var(--ink-3); cursor: default; }
+
+/* ---------- "Preparing document…" bar ---------- */
+.lib-prep {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 90;
+  padding: var(--s2) var(--s4); background: var(--surface); border-bottom: 1px solid var(--line);
+  color: var(--ink); font: 500 13px/18px var(--font-ui);
+}
+.lib-prep__bar { position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; background: var(--line); overflow: hidden; }
+.lib-prep__bar::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: -40%; width: 40%; background: var(--accent);
+  animation: libPrep 1.2s linear infinite;
+}
+@keyframes libPrep { from { left: -40%; } to { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .lib-prep__bar::after { animation: none; left: 0; width: 100%; opacity: .5; } }
+
+/* ---------- deck page (SPEC §14) ---------- */
+#deck:not(.is-hidden) { display: block; min-height: 100vh; box-sizing: border-box; background: var(--bg); position: relative; }
+.deck { max-width: 880px; margin: 0 auto; padding: var(--s3) var(--s4) var(--s7); box-sizing: border-box; min-width: 0; }
+.deck__head { padding-bottom: var(--s4); border-bottom: 1px solid var(--line); }
+.deck__back { color: var(--ink-2); padding-left: 0; }
+.deck__title-row { display: flex; align-items: center; gap: var(--s1); margin-top: var(--s2); min-width: 0; }
+.deck__name {
+  margin: 0; font: 500 22px/28px var(--font-display); color: var(--ink); letter-spacing: -.01em; cursor: text;
+  border-radius: var(--r1); padding: 0 var(--s1); margin-left: calc(-1 * var(--s1)); overflow-wrap: anywhere;
+}
+.deck__name:hover { background: var(--surface-2); }
+.deck__name:focus-visible { outline: 2px solid var(--focus); }
+.deck__name-input { font: 500 22px/28px var(--font-display); height: 36px; max-width: 480px; }
+.deck__desc {
+  margin: var(--s1) 0 0; font: 14px/20px var(--font-ui); color: var(--ink-2); cursor: text; border-radius: var(--r1);
+  padding: 0 var(--s1); margin-left: calc(-1 * var(--s1)); overflow-wrap: anywhere; white-space: pre-wrap;
+}
+.deck__desc--empty { color: var(--ink-3); font-style: italic; }
+.deck__desc:hover { background: var(--surface-2); }
+.deck__desc:focus-visible { outline: 2px solid var(--focus); }
+.deck__desc-input {
+  display: block; width: 100%; max-width: 560px; box-sizing: border-box; margin-top: var(--s1); padding: var(--s1) var(--s2);
+  border: 1px solid var(--line); border-radius: var(--r1); background: var(--surface); color: var(--ink); font: 14px/20px var(--font-ui); resize: vertical;
+}
+.deck__desc-input:focus { outline: 2px solid var(--focus); outline-offset: 0; }
+.deck__counts { margin-top: var(--s2); font: 13px/18px var(--font-ui); color: var(--ink-2); }
+.deck__actions { display: flex; align-items: center; gap: var(--s2); margin-top: var(--s3); flex-wrap: wrap; }
+.deck__more { min-width: 32px; font-size: 16px; }
+.deck__add, .deck__prompts { margin-top: var(--s5); }
+.deck__hint { margin: 0 0 var(--s2); font: 13px/18px var(--font-ui); color: var(--ink-2); }
+.deck__add-host { min-width: 0; }
+.deck__add-host .editor { width: 100%; max-width: 100%; box-sizing: border-box; }
+.deck__add-host .editor__textarea { min-height: 140px; }
+.deck__list { min-width: 0; }
+
+/* ---------- settings panel (SPEC §13, §7, §15; BUILD-NOTES tabs) ---------- */
+#settings:not(.is-hidden) { position: fixed; inset: 0; z-index: 70; display: block; }
+.settings__backdrop { position: absolute; inset: 0; background: var(--dim); }
+.settings__panel {
+  position: absolute; top: 0; right: 0; bottom: 0; width: min(440px, 100vw - 32px); box-sizing: border-box;
+  display: flex; flex-direction: column; background: var(--surface); border-left: 1px solid var(--line);
+  box-shadow: var(--page-shadow); color: var(--ink); overflow: hidden;
+}
+.settings__head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s2);
+  padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); flex: 0 0 auto;
+}
+.settings__title { margin: 0; font: 500 18px/24px var(--font-display); }
+.settings__close { min-width: 32px; }
+/* five tabs (… Obsidian, Data) need more than the 440-px panel: the row wraps rather than scrolling tabs out of sight */
+.settings__tabs { display: flex; flex-wrap: wrap; gap: 0; padding: 0 var(--s3); border-bottom: 1px solid var(--line); flex: 0 0 auto; }
+.settings__tab {
+  border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--ink-2); cursor: pointer;
+  padding: var(--s2) var(--s3); font: 500 13px/20px var(--font-ui); white-space: nowrap; margin-bottom: -1px;
+}
+.settings__tab:hover { color: var(--ink); }
+.settings__tab--active { color: var(--ink); border-bottom-color: var(--accent); }
+.settings__tab:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: var(--r1); }
+.settings__body { flex: 1 1 auto; overflow: auto; padding: var(--s4); min-height: 0; }
+.settings__pane { display: flex; flex-direction: column; gap: var(--s4); min-width: 0; }
+.settings__row { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+.settings__row--inline { flex-direction: row; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.settings__label { font: 500 13px/18px var(--font-ui); color: var(--ink-2); display: flex; flex-direction: column; gap: var(--s1); }
+.settings__row--inline .settings__label { flex-direction: row; align-items: center; gap: var(--s2); }
+.settings__radios { display: flex; gap: var(--s4); flex-wrap: wrap; }
+.settings__radio, .settings__check { display: inline-flex; align-items: center; gap: var(--s1); font: 14px/20px var(--font-ui); color: var(--ink); cursor: pointer; }
+.settings__hint { font: 12px/16px var(--font-ui); color: var(--ink-3); }
+/* Settings › Obsidian (DECISIONS D32): what shows only while "Connect Marginalia to Obsidian" is on */
+.settings__obsidian-body { display: flex; flex-direction: column; gap: var(--s4); min-width: 0; }
+.settings__notice { padding: var(--s2) var(--s3); background: var(--surface-2); border-radius: var(--r2); font: 14px/20px var(--font-ui); }
+.settings__status { font: 13px/18px var(--font-ui); color: var(--ink-2); overflow-wrap: anywhere; min-height: 18px; }
+.settings__status--ok { color: var(--ink); }
+.settings__status--bad { color: var(--danger); }
+.settings__actions { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.settings__input, .settings__select {
+  width: 100%; max-width: 100%; height: 32px; padding: 0 var(--s2); box-sizing: border-box;
+  border: 1px solid var(--line); border-radius: var(--r1); background: var(--bg); color: var(--ink); font: 14px/20px var(--font-ui);
+}
+.settings__input[type="password"] { font-family: var(--font-mono); letter-spacing: .1em; }
+.settings__select { width: auto; }
+.settings__input:focus, .settings__select:focus { outline: 2px solid var(--focus); outline-offset: 0; }
+.settings__persist { align-self: flex-start; }
+/* Settings › Data › "Automatic backup" (M.backup): status line, the daily switch, "Back up now", the restore hint */
+.settings__backup { padding-top: var(--s3); border-top: 1px solid var(--line); }
+.settings__backup-controls { gap: var(--s2); }
+
+/* review-shortcut table (§7) */
+.shortcuts-table { width: 100%; border-collapse: collapse; font: 14px/20px var(--font-ui); }
+.shortcuts-table th { text-align: left; font: 500 12px/16px var(--font-display); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); padding: 0 var(--s1) var(--s1); }
+.shortcuts-table td { padding: var(--s1); border-top: 1px solid var(--line); vertical-align: middle; }
+.shortcuts-table tr.is-conflict td { color: var(--danger); }
+.shortcuts-table tr.is-conflict .kbd { color: var(--danger); border-color: var(--danger); }
+.shortcuts-table tr.is-conflict .shortcuts__unbound { color: var(--danger); font-weight: 500; }
+.shortcuts-table tr.is-recording td { background: var(--surface-2); }
+.shortcuts__key { min-width: 120px; }
+.shortcuts__cap {
+  border: 0; background: transparent; padding: 2px var(--s1); cursor: pointer; border-radius: var(--r1); color: inherit; font: inherit; text-align: left;
+}
+.shortcuts__cap:hover { background: var(--surface-2); }
+.shortcuts__cap:focus-visible { outline: 2px solid var(--focus); }
+.shortcuts__cap .kbd { font-size: 12px; min-width: 22px; text-align: center; }
+.shortcuts__cap--unbound { color: var(--ink-3); font-style: italic; }
+.shortcuts__recording { color: var(--ink-2); font-size: 13px; }
+.shortcuts__use-esc { padding: 0 var(--s1); height: 22px; font-size: 12px; }
+.shortcuts__rebind-cell { text-align: right; width: 72px; }
+
+/* ---------- generic dialog frame (built by M.exporter.openDialog; the backdrop is .dialog itself) ---------- */
+.dialog, .dialog__backdrop { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; background: var(--dim); padding: var(--s4); box-sizing: border-box; }
+.dialog__panel {
+  width: min(560px, 100%); max-height: calc(100vh - 32px); overflow: auto; box-sizing: border-box;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r3); box-shadow: var(--page-shadow);
+  padding: var(--s4);
+}
+.dialog__head { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); }
+.dialog__title { margin: 0; font: 500 18px/24px var(--font-display); }
+.dialog__close { min-width: 32px; }
+.dialog__tabs { display: flex; border-bottom: 1px solid var(--line); margin: var(--s2) 0 var(--s3); }
+.dialog__tab {
+  border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--ink-2); cursor: pointer;
+  padding: var(--s2) var(--s3); font: 500 13px/20px var(--font-ui); margin-bottom: -1px;
+}
+.dialog__tab--active, .dialog__tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.dialog__pane { display: flex; flex-direction: column; gap: var(--s3); }
+.dialog__row { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; font: 14px/20px var(--font-ui); }
+.dialog__label, .dialog__check, .dialog__radio { display: inline-flex; align-items: center; gap: var(--s1); }
+.dialog__formats { border: 1px solid var(--line); border-radius: var(--r2); padding: var(--s2) var(--s3); display: flex; gap: var(--s3); flex-wrap: wrap; margin: 0; }
+.dialog__formats legend { font: 500 12px/16px var(--font-display); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); padding: 0 var(--s1); }
+.dialog__select { height: 32px; border: 1px solid var(--line); border-radius: var(--r1); background: var(--bg); color: var(--ink); font: 14px/20px var(--font-ui); max-width: 100%; }
+.dialog__status { font: 13px/18px var(--font-ui); color: var(--ink-2); overflow-wrap: anywhere; }
+.dialog__hint { font: 12px/16px var(--font-ui); color: var(--danger); }
+.dialog__actions { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.dialog__textarea { border: 1px solid var(--line); border-radius: var(--r1); background: var(--bg); color: var(--ink); padding: var(--s2); }
+.dialog__filename { color: var(--ink-2); font: 13px/18px var(--font-ui); }
+
+/* ---------- mobile (SPEC §2: no horizontal scroll at 400 px) ---------- */
+@media (max-width: 600px) {
+  .lib { padding-left: var(--s4); padding-right: var(--s4); }
+  .lib__header { align-items: flex-start; }
+  .lib__header-actions { width: 100%; }
+  .lib__banner { flex-wrap: wrap; }
+  .lib-row { flex-direction: column; align-items: stretch; gap: var(--s2); }
+  .lib-row__actions { flex-wrap: wrap; }
+  .lib-folder__body { margin-left: 4px; padding-left: var(--s2); }
+  .lib__footer { flex-direction: column; }
+  .settings__panel { width: 100vw; max-width: 100vw; border-left: 0; }
+  .settings__body { padding: var(--s3) var(--s4); }
+  .shortcuts__key { min-width: 0; }
+  .shortcuts__rebind-cell { display: none; }
+  .dialog, .dialog__backdrop { padding: var(--s3); }
+}

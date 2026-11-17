@@ -1,0 +1,8 @@
+# npm ci makes it; npm run app makes the rest (the .cache keeps the downloads for offline rebuilds)
+node_modules/
+.cache/
+build/
+out/
+# the name of the certificate that signs the app on this Mac (scripts/build.js, lib/signing.js): a name, not a secret,
+# but this Mac's own choice. vendor-lock.json is NOT ignored: it is part of the project.
+/sign-identity

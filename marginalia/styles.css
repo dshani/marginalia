@@ -1,0 +1,253 @@
+/* Marginalia — styles.css
+   Scope (BUILD-NOTES "CSS ownership"): the §13 design tokens (light + both dark blocks), base element
+   styles, the .btn family, .kbd, .is-hidden, .chip, form controls, the screen containers (#library,
+   #reader, #deck — one shown at a time via .is-hidden), the reader structure of §2 (#toolbar height,
+   #scroller flex row, .gutter, #pages, #margin width and its sticky place in the row) and the breakpoint
+   classes .reader--wide (+ .reader--compact), .reader--rail and .reader--stack that reader.js sets on #reader.
+   Every UI module owns the CSS of the DOM it creates, in css/<module>.css. Nothing component-specific
+   belongs here. */
+
+/* ------------------------------------------------------------------------------------------------
+   1. Tokens (SPEC §13, verbatim)
+   ------------------------------------------------------------------------------------------------ */
+:root {
+  --bg: #efece4; --surface: #faf8f3; --surface-2: #e9e4d8; --line: #ddd7ca;
+  --ink: #1f1d1a; --ink-2: #6b665d; --ink-3: #8f8a7f;
+  --accent: #e04a2f; --focus: #2f6fe0; --danger: #b3261e;
+  --hl: #ffe66d; --hl-soft: #fff3b0; --hl-active: #ffd21f; --hl-flag: #ffb347; --find: #9cc4ff;
+  --hl-ink: #1f1d1a;  /* text on a yellow mark: dark in both themes, like the --hl colours themselves */
+  --page-bg: #fff; --page-shadow: 0 1px 4px rgba(0,0,0,.25); --dim: rgba(0,0,0,.35);
+  --review-bg: #f3e9d2; --review-ink: #2a2318; --review-ink-2: #8a7a5c; --review-line: #e4d7b8;
+  --review-accent: #e04a2f; --review-accent-2: #e8a33a; --review-btn: #fbf5ea;
+  --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Outfit", var(--font-ui);          /* Google Fonts: Outfit 400/500/700 */
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 48px;
+  --r1: 6px; --r2: 8px; --r3: 12px; --toolbar-h: 44px; --card-w: 256px; --margin-w: 288px;
+}
+/* Dark block: --hl*, --find, --page-bg and --dim stay identical (they sit on the white page). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme=light]) {
+    --bg: #1b1a18; --surface: #24221f; --surface-2: #2e2b27; --line: #3a3732;
+    --ink: #ece7dc; --ink-2: #a39d91; --ink-3: #7f7a70;
+    --accent: #ff6a4d; --focus: #7aa7ff; --danger: #ff7b72;
+    --page-shadow: 0 1px 6px rgba(0,0,0,.6);
+    --review-bg: #2a2419; --review-ink: #f1e8d6; --review-ink-2: #a8977a; --review-line: #3e3425;
+    --review-accent: #ff6a4d; --review-accent-2: #f0b24a; --review-btn: #3a3023;
+  }
+}
+:root[data-theme=dark] {
+  --bg: #1b1a18; --surface: #24221f; --surface-2: #2e2b27; --line: #3a3732;
+  --ink: #ece7dc; --ink-2: #a39d91; --ink-3: #7f7a70;
+  --accent: #ff6a4d; --focus: #7aa7ff; --danger: #ff7b72;
+  --page-shadow: 0 1px 6px rgba(0,0,0,.6);
+  --review-bg: #2a2419; --review-ink: #f1e8d6; --review-ink-2: #a8977a; --review-line: #3e3425;
+  --review-accent: #ff6a4d; --review-accent-2: #f0b24a; --review-btn: #3a3023;
+}
+/* Native controls and scrollbars follow the active theme (same three selectors as the token blocks). */
+:root { color-scheme: light; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme=light]) { color-scheme: dark; } }
+:root[data-theme=dark] { color-scheme: dark; }
+
+/* ------------------------------------------------------------------------------------------------
+   2. Base element styles (SPEC §13)
+   ------------------------------------------------------------------------------------------------ */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--font-ui); }
+
+h1, h2, h3, h4 { margin: 0; font-family: var(--font-display); font-weight: 500; line-height: 1.25; }
+h1 { font-size: 22px; line-height: 28px; }
+h2 { font-size: 18px; line-height: 24px; }
+h3 { font-size: 15px; line-height: 20px; }
+h4 { font-size: 14px; line-height: 20px; }
+p { margin: 0 0 var(--s3); }
+p:last-child { margin-bottom: 0; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+ul, ol { margin: 0; padding: 0; list-style: none; }
+table { border-collapse: collapse; border-spacing: 0; }
+th { text-align: left; font-weight: 500; }
+hr { border: 0; border-top: 1px solid var(--line); margin: var(--s4) 0; }
+img { max-width: 100%; }
+code, kbd, pre, samp { font-family: var(--font-mono); font-size: .92em; }
+pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+mark { background: var(--hl-soft); color: var(--hl-ink); }
+small { font-size: 12px; }
+[hidden] { display: none !important; }
+
+/* Focus: a 2-px --focus ring for keyboard focus only; the screen containers never show one. */
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+:focus:not(:focus-visible) { outline: none; }
+#reader:focus, #review:focus { outline: none; }
+
+/* ------------------------------------------------------------------------------------------------
+   3. Buttons
+   ------------------------------------------------------------------------------------------------ */
+button { font: inherit; color: inherit; margin: 0; padding: 0; background: none; border: 0; cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 32px; padding: 0 var(--s3); margin: 0;
+  border: 1px solid var(--line); border-radius: var(--r2);
+  background: var(--surface); color: var(--ink);
+  font: inherit; font-weight: 500; line-height: 1; white-space: nowrap; text-decoration: none;
+  cursor: pointer; vertical-align: middle;
+  -webkit-user-select: none; user-select: none;
+  transition: background-color .12s, border-color .12s, color .12s, opacity .12s;
+}
+a.btn:hover { text-decoration: none; }
+.btn:not(:disabled):not([aria-disabled="true"]):hover { background: var(--surface-2); }
+.btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.btn--primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn--primary:not(:disabled):not([aria-disabled="true"]):hover { background: var(--accent); filter: brightness(.94); }
+.btn--danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn--danger:not(:disabled):not([aria-disabled="true"]):hover { background: var(--danger); filter: brightness(.94); }
+.btn--ghost { background: transparent; border-color: transparent; }
+.btn--ghost:not(:disabled):not([aria-disabled="true"]):hover { background: var(--surface-2); }
+.btn:disabled, .btn[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
+
+/* ------------------------------------------------------------------------------------------------
+   4. Key caps, chips, visibility
+   ------------------------------------------------------------------------------------------------ */
+.kbd {
+  display: inline-block; min-width: 18px; padding: 0 5px;
+  border: 1px solid var(--line); border-bottom-width: 2px; border-radius: var(--r1);
+  background: var(--surface); color: var(--ink-2);
+  font: 11px/18px var(--font-mono); text-align: center; vertical-align: middle; white-space: nowrap;
+}
+
+.chip {
+  display: inline-block; max-width: 100%; height: 20px; padding: 0 var(--s2);
+  border-radius: 999px; background: var(--surface-2); color: var(--ink-2);
+  font-size: 12px; line-height: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.is-hidden { display: none !important; }
+
+/* ------------------------------------------------------------------------------------------------
+   5. Form controls
+   ------------------------------------------------------------------------------------------------ */
+input, select, textarea { font: inherit; color: inherit; margin: 0; }
+input[type="text"], input[type="search"], input[type="password"], input[type="number"],
+input[type="url"], input[type="email"], input:not([type]), select, textarea {
+  max-width: 100%; height: 32px; padding: 0 var(--s3);
+  border: 1px solid var(--line); border-radius: var(--r2);
+  background: var(--surface); color: var(--ink);
+}
+input[type="text"], input[type="search"], input[type="password"], input[type="number"],
+input[type="url"], input[type="email"], input:not([type]), textarea { -webkit-appearance: none; appearance: none; }
+select { padding-right: var(--s5); }
+textarea { height: auto; min-height: 72px; padding: var(--s2) var(--s3); line-height: 1.45; resize: vertical; }
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  border-color: var(--focus); outline: 2px solid var(--focus); outline-offset: -1px;
+}
+::placeholder { color: var(--ink-3); opacity: 1; }
+input[type="checkbox"], input[type="radio"] {
+  width: 14px; height: 14px; margin: 0 var(--s1) 0 0; accent-color: var(--accent); vertical-align: middle;
+}
+input[type="range"] { accent-color: var(--accent); }
+input:disabled, select:disabled, textarea:disabled { opacity: .5; cursor: not-allowed; }
+fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+legend { padding: 0; }
+
+/* ------------------------------------------------------------------------------------------------
+   6. Shared markup primitives emitted by M.markup.render (defaults only; margin.css, editor.css,
+      list.css and review.css refine them for their surface)
+   ------------------------------------------------------------------------------------------------ */
+.math-display { display: block; max-width: 100%; overflow-x: auto; overflow-y: hidden; padding: var(--s1) 0; }
+.math-display .katex-display { margin: 0; }
+.tex { font-family: var(--font-mono); font-size: .92em; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tex--error { color: var(--danger); text-decoration: underline dotted var(--danger); text-decoration-skip-ink: none; }
+.cloze-blank { display: inline-block; min-width: 4em; border-bottom: 2px solid var(--ink-3); vertical-align: baseline; }
+.cloze-reveal { background: var(--hl-soft); color: var(--hl-ink); border-radius: 2px; padding: 0 2px; }
+/* a blank's cue, "(cue)" beside the blank or the mark (FEATURES P1.1): quiet, the secondary text colour at the
+   size of the text around it, on every surface (cards, lists, the preview and the review overlay: no stylesheet
+   refines it). --ink-2 has a light and a dark value; against --bg, --surface and --review-bg its contrast is
+   4.7 to 1 or more in both themes (test/cues.test.js checks it). */
+.cloze-cue { color: var(--ink-2); }
+.att { display: block; max-width: 100%; max-height: 120px; border-radius: var(--r1); }
+.att--missing {
+  display: inline-block; height: 20px; padding: 0 var(--s2); border-radius: 999px;
+  background: var(--surface-2); color: var(--danger); font-size: 12px; line-height: 20px; white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------------------------------------
+   7. Screen containers (SPEC §2): #library, #deck and #stats are full-width pages that scroll with the
+      window; #reader is a viewport-high column whose #scroller is the only thing that scrolls.
+   ------------------------------------------------------------------------------------------------ */
+#app { min-height: 100vh; overflow-x: hidden; }
+#library, #deck, #stats { display: block; width: 100%; min-width: 0; }
+
+#reader { position: relative; display: flex; flex-direction: column; height: 100vh; min-height: 0; overflow: hidden; }
+@supports (height: 100dvh) { #reader { height: 100dvh; } }
+/* While the permanent banner (#banner) is visible, the reader shares the viewport with it instead of
+   overflowing it (progressive enhancement; browsers without :has() keep the plain 100vh reader). */
+#app:has(> #banner:not(.is-hidden)):has(> #reader:not(.is-hidden)) { display: flex; flex-direction: column; height: 100vh; }
+@supports (height: 100dvh) { #app:has(> #banner:not(.is-hidden)):has(> #reader:not(.is-hidden)) { height: 100dvh; } }
+#app:has(> #banner:not(.is-hidden)) > #reader:not(.is-hidden) { flex: 1 1 auto; height: auto; }
+/* The tab strip (#tabs, js/tabs.js, css/tabs.css; D30) is shown with two or more tabs. The reader shares the viewport
+   with it as with the banner; the full-width pages are shorter by its height, so that a short page does not scroll;
+   the "Preparing document…" bar sits under it. */
+#app { --tabs-h: 34px; }
+#app:has(> #tabs:not(.is-hidden)):has(> #reader:not(.is-hidden)) { display: flex; flex-direction: column; height: 100vh; }
+@supports (height: 100dvh) { #app:has(> #tabs:not(.is-hidden)):has(> #reader:not(.is-hidden)) { height: 100dvh; } }
+#app:has(> #tabs:not(.is-hidden)) > #reader:not(.is-hidden) { flex: 1 1 auto; height: auto; }
+#app:has(> #tabs:not(.is-hidden)) > #library:not(.is-hidden),
+#app:has(> #tabs:not(.is-hidden)) > #deck:not(.is-hidden) { min-height: calc(100vh - var(--tabs-h)); }
+#app:has(> #tabs:not(.is-hidden)) .lib-prep { top: var(--tabs-h); }
+/* With the banner shown too, the banner keeps the top of a page that scrolls and the strip scrolls with the page
+   (both sticky at top 0, the banner would slide under the strip and hide its text). */
+#app:has(> #banner:not(.is-hidden)) > #tabs { position: static; }
+/* A row that the keyboard focus scrolls into view stops below the strip, not under it. */
+html:has(#tabs:not(.is-hidden)) { scroll-padding-top: 34px; }
+
+#toolbar { flex: 0 0 auto; position: relative; height: var(--toolbar-h); min-height: var(--toolbar-h); }
+#scroller {
+  flex: 1 1 auto; min-height: 0; position: relative;
+  display: flex; align-items: flex-start;
+  overflow: auto; overscroll-behavior: contain;
+}
+#scroller .gutter { flex: 1 1 0; min-width: 24px; }
+#pages { flex: 0 0 auto; position: relative; }
+/* #margin is sticky at the scroller's right edge: when a zoomed page is wider than the room beside the margin
+   and #scroller scrolls sideways, the notes stay in view over the page instead of leaving with the end of the
+   row; scrolled to the far right the margin is back in its own place, so every part of the page stays reachable
+   (BUILD-NOTES "Post-review decisions"). z-index 5: above the pages (each .page isolates its own layers), below
+   the #list drawer (25), the snip overlay and #sheet (40), the adder and find bar (50), menus (60), dialogs and
+   toasts. Its popovers and card menus are its own children. css/margin.css gives it an opaque background. */
+#margin { flex: 0 0 auto; position: sticky; right: 0; z-index: 5; width: var(--margin-w); min-height: 100%; }
+
+/* Breakpoints (reader.js measures #reader with a ResizeObserver and sets exactly one of the three modes):
+   wide ≥ 680, rail 600–679, stack < 600; wide below 1000 adds .reader--compact (224 = 16 + 192 card + 16). */
+#reader.reader--wide { --margin-w: 288px; }
+#reader.reader--wide.reader--compact { --margin-w: 224px; --card-w: 192px; }
+#reader.reader--rail { --margin-w: 44px; }
+#reader.reader--rail #margin { width: 44px; }
+#reader.reader--stack { --margin-w: 0px; }
+#reader.reader--stack #margin { display: none; }
+#reader.reader--stack .gutter { min-width: 16px; }
+/* Stack mode has no margin column: a 16-px end spacer keeps the page column (fit in W − 32) centred
+   instead of flush against the right edge. */
+#reader.reader--stack #scroller::after { content: ""; flex: 0 0 16px; align-self: stretch; }
+
+/* ------------------------------------------------------------------------------------------------
+   8. Reduced motion
+   ------------------------------------------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important; scroll-behavior: auto !important;
+  }
+}
+
+/* SELF-CHECK (BUILD-NOTES "CSS ownership" for styles.css): §13 tokens (light, prefers-color-scheme dark
+   under :root:not([data-theme=light]), and :root[data-theme=dark]); body/base rules; .btn .btn--primary
+   .btn--danger .btn--ghost (+ disabled, 32 px, radius --r2, focus ring); .kbd; .is-hidden; .chip; inputs,
+   selects, textarea; #app; #library #deck #reader #toolbar #scroller .gutter #pages #margin (sticky, right 0,
+   z-index 5); .reader--wide (+ .reader--compact: --margin-w 224px, --card-w 192px) .reader--rail .reader--stack;
+   prefers-reduced-motion. Extension (recorded): defaults for the shared M.markup classes .math-display .tex
+   .tex--error .cloze-blank .cloze-reveal .cloze-cue (FEATURES P1.1: color --ink-2, no font size of its own, the
+   one rule for every surface) .att .att--missing. */

@@ -1,0 +1,93 @@
+/* css/stats.css — owned by js/stats.js (BUILD-NOTES "CSS ownership", "Scheduling and statistics").
+ * The statistics page (#stats): the header, the book filter with the totals line, "Coming due" (one column per day
+ * for 30 days) and the table of prompts. Colours, spacing and radii are the §13 tokens; the one colour of its own is
+ * the chart's column colour. Nothing but the table scrolls sideways at 400 px. */
+
+/* The chart's one series colour. Light: the accent. Dark: the same hue one step darker than the dark accent, which
+ * is too light for a filled mark on the dark surface (checked for lightness and for 3:1 against both surfaces). */
+:root { --stats-bar: #e04a2f; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme=light]) { --stats-bar: #e8553a; } }
+:root[data-theme=dark] { --stats-bar: #e8553a; }
+
+.stats { max-width: 880px; margin: 0 auto; padding: var(--s3) var(--s4) var(--s7); box-sizing: border-box; min-width: 0; font: 14px/20px var(--font-ui); color: var(--ink); }
+.stats__header { padding-bottom: var(--s3); }
+.stats__back { color: var(--ink-2); padding-left: 0; }
+.stats__title { margin: var(--s2) 0 0; font: 500 22px/28px var(--font-display); color: var(--ink); letter-spacing: -.01em; }
+.stats__title:focus { outline: none; }   /* it takes the focus when the page opens (for screen readers); it is no control */
+.stats__empty { margin: var(--s5) 0 var(--s1); font: 500 16px/22px var(--font-display); color: var(--ink); }
+.stats__hint { margin: 0; color: var(--ink-2); }
+
+.stats__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s4); padding: var(--s2) 0 var(--s4); }
+.stats__select { max-width: 100%; min-width: 0; }
+.stats__totals { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 18px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+.stats__card { margin-bottom: var(--s5); padding: var(--s4); box-sizing: border-box; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r2); }
+.stats__h { margin: 0; font: 500 12px/16px var(--font-display); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); }
+.stats__sub { margin: 2px 0 var(--s3); color: var(--ink-2); font-size: 13px; line-height: 18px; }
+.stats__none { margin: 0; padding: var(--s3) 0; color: var(--ink-2); }
+
+/* ---------- "Coming due": one column per day on one baseline ---------- */
+.stats__chart { position: relative; padding-top: 22px; }                    /* room for a number over the highest column */
+.stats__plot { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px; height: 112px; border-bottom: 1px solid var(--line); }
+.stats__slot { position: relative; display: flex; align-items: flex-end; justify-content: center; min-width: 0; }   /* the whole slot is the hover target */
+.stats__col { display: block; width: 100%; max-width: 24px; min-height: 3px; background: var(--stats-bar); border-radius: 4px 4px 0 0; }
+.stats__slot:hover .stats__col { filter: brightness(1.12); }
+.stats__val { position: absolute; left: 50%; transform: translateX(-50%); margin-bottom: 3px; color: var(--ink); font: 500 11px/14px var(--font-ui); font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; }
+.stats__axis { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px; height: 20px; }
+.stats__tick { position: relative; min-width: 0; }
+.stats__tick-label { position: absolute; top: 4px; left: 50%; transform: translateX(-50%); color: var(--ink-3); font: 11px/14px var(--font-ui); white-space: nowrap; }
+.stats__tick:first-child .stats__tick-label { left: 0; transform: none; }   /* "today" starts at the plot's edge */
+.stats__tip { position: absolute; top: 0; z-index: 2; transform: translateX(-50%); display: flex; align-items: baseline; gap: var(--s2); padding: 2px var(--s2); background: var(--ink); color: var(--surface); border-radius: var(--r1); font: 12px/16px var(--font-ui); white-space: nowrap; pointer-events: none; }
+.stats__tip.is-hidden { display: none; }
+.stats__tip-value { font-weight: 600; font-variant-numeric: tabular-nums; }
+.stats__tip-label { opacity: .8; }
+.stats__later { margin: var(--s2) 0 0; color: var(--ink-2); font-size: 13px; line-height: 18px; }
+.stats__list { margin-top: var(--s2); color: var(--ink-2); font-size: 13px; line-height: 18px; }
+.stats__list summary { display: inline-block; cursor: pointer; color: var(--ink-2); border-radius: var(--r1); }
+.stats__list summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.stats__list ul { margin: var(--s2) 0 0; padding: 0; list-style: none; max-width: 280px; }
+.stats__list li { display: flex; justify-content: space-between; gap: var(--s4); padding: 2px 0; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.stats__list li:last-child { border-bottom: 0; }
+.stats__list-n { color: var(--ink); }
+
+/* ---------- the table of prompts ---------- */
+.stats__scroll { overflow-x: auto; margin: 0 calc(-1 * var(--s2)); }
+.stats__table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 18px; }
+.stats__table th { padding: 0; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line); font-weight: 500; }
+.stats__table td { padding: var(--s2); vertical-align: top; border-bottom: 1px solid var(--line); }
+.stats__table tbody tr:last-child td { border-bottom: 0; }
+.stats__table tbody tr:hover td { background: var(--surface-2); }
+.stats__sort { display: inline-flex; align-items: center; gap: 2px; width: 100%; padding: var(--s1) var(--s2); box-sizing: border-box; border-radius: var(--r1); color: var(--ink-2); font: 500 12px/16px var(--font-ui); text-align: left; }
+.stats__sort:hover { color: var(--ink); background: var(--surface-2); }
+.stats__sort:focus-visible, .stats__open:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.stats__arrow { display: inline-block; width: 10px; font-size: 9px; line-height: 16px; color: var(--ink); }
+.stats__table th.stats__num .stats__sort { justify-content: flex-end; text-align: right; }
+.stats__table td.stats__num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stats__date { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.stats__row--due .stats__date:nth-child(5) { color: var(--ink); font-weight: 500; }   /* "now" */
+.stats__prompt { min-width: 200px; overflow-wrap: anywhere; }
+.stats__open { display: block; width: 100%; padding: 0; color: var(--ink); font: inherit; text-align: left; border-radius: 2px; overflow-wrap: anywhere; }
+.stats__open:hover .stats__q { text-decoration: underline; text-decoration-color: var(--ink-3); }
+/* the question as the prompt list draws it (M.markup.render, mode "list"), two lines at most */
+.stats__q { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.stats__q .math-display { display: inline; margin: 0; }
+.stats__q .katex-display { display: inline; margin: 0; }
+.stats__q .katex-display > .katex { display: inline; }
+.stats__q .att { display: inline-block; max-height: 32px; max-width: 100%; width: auto; vertical-align: middle; border-radius: var(--r1); }
+.stats__q .cloze-mark { background: var(--hl-soft); color: var(--hl-ink); border-radius: 2px; padding: 0 2px; box-shadow: inset 0 -1px 0 var(--hl-active); text-decoration: none; }
+.stats__book { color: var(--ink-2); min-width: 96px; max-width: 200px; overflow-wrap: anywhere; }
+.stats__flag { margin-left: var(--s1); color: var(--ink-2); }
+.stats__chip { display: inline-block; margin-left: var(--s1); padding: 0 var(--s1); border: 1px solid var(--line); border-radius: var(--r1); color: var(--ink-2); font-size: 11px; line-height: 16px; white-space: nowrap; }
+
+@media (max-width: 520px) {
+  .stats__card { padding: var(--s3); }
+  .stats__tick:nth-child(7n + 1):not(:first-child):nth-child(14n + 8) .stats__tick-label { display: none; }   /* every second date */
+}
+@media (prefers-reduced-motion: no-preference) { .stats__col { transition: filter .12s ease; } }
+
+/* SELF-CHECK (BUILD-NOTES "CSS ownership"): .stats, __header, __back, __title, __empty, __hint, __bar, __select,
+   __totals, __card, __h, __sub, __none; the chart: __chart, __plot, __slot, __col, __val, __axis, __tick, __tick-label, __tip,
+   __tip-value, __tip-label, __later, __list, __list-day, __list-n; the table: __scroll, __table, __sort, __arrow, __num,
+   __date, __row, __row--due, __prompt, __open, __q (with M.markup's .math-display, .att and .cloze-mark inside;
+   the cue's colour is styles.css's one rule), __book, __flag, __chip. Token of its own: --stats-bar (light, dark media,
+   data-theme=dark). */

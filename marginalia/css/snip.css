@@ -1,0 +1,80 @@
+/* css/snip.css — owned by snip.js: the snip overlay, the drag rectangle and the snip toast contents.
+   Tokens from SPEC §13 (styles.css). The overlay is positioned by snip.js (fixed over #pages ∩ #scroller). */
+
+#snipOverlay {
+  position: fixed;
+  z-index: 40;
+  overflow: hidden;
+  background: transparent;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#snipOverlay.is-hidden { display: none; }
+
+/* While armed, the page text layers must not start a text selection under the overlay. */
+#reader:has(#snipOverlay:not(.is-hidden)) .textLayer { pointer-events: none; }
+
+.snip-rect {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--accent);
+  /* everything outside the rectangle is dimmed 25 % (clipped by the overlay's overflow: hidden) */
+  box-shadow: 0 0 0 100000px rgba(0, 0, 0, .25);
+  pointer-events: none;
+}
+
+/* Toast contents built by snip.js (inside M.app.toast). */
+.snip-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s3);
+  max-width: 100%;
+  min-width: 0;
+}
+.snip-toast__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.snip-thumb {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  background: var(--page-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r1);
+}
+.snip-tex {
+  font: 12px/16px var(--font-mono);
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  user-select: all;
+  -webkit-user-select: all;
+  cursor: text;
+}
+.snip-preview {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  font-size: 14px;
+  color: var(--ink);
+}
+.snip-preview .katex-display,
+.snip-preview .math-display { margin: var(--s1) 0; }
+.snip-preview .tex {
+  font: 12px/16px var(--font-mono);
+  color: var(--ink-2);
+}
+.snip-hint {
+  font: 12px/16px var(--font-ui);
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}

@@ -1,0 +1,290 @@
+/* Marginalia — css/review.css
+   The review overlay (SPEC §2 "Review overlay", §7 "Grading UI" / "Starburst" / "End of session", §13 type
+   and tokens; BUILD-NOTES "CSS ownership"). Owned by js/review.js: everything under #review.
+   Only the §13 tokens are used (no custom properties are defined here), so dark mode follows styles.css. */
+
+/* ---- overlay ------------------------------------------------------------ */
+#review {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--review-bg);
+  color: var(--review-ink);
+  font: 14px/1.45 var(--font-ui);
+  outline: none;
+  -webkit-font-smoothing: antialiased;
+}
+#review.is-hidden { display: none; }
+#review *, #review *::before, #review *::after { box-sizing: border-box; }
+#review button { font-family: inherit; }
+#review button:focus-visible, #review textarea:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* ---- top chrome --------------------------------------------------------- */
+.review__exit {
+  position: fixed;
+  top: 16px;
+  right: 24px;
+  z-index: 3;
+  margin: 0;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--r1);
+  background: none;
+  font: 500 14px/20px var(--font-ui);
+  color: var(--review-accent);
+  cursor: pointer;
+}
+.review__exit:hover { text-decoration: underline; }
+
+/* ---- starburst (inline SVG, top-left; the overlay clips its left and upper halves) ---- */
+.review__burst { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; z-index: 1; }
+.review__svg {
+  position: absolute;
+  display: block;
+  overflow: visible;
+  transform-origin: 50% 50%;
+  transition: left .55s cubic-bezier(.2, .9, .3, 1.15), top .55s cubic-bezier(.2, .9, .3, 1.15), transform .55s cubic-bezier(.2, .9, .3, 1.15);
+}
+.review__ray { fill: var(--review-line); }
+.review__ray--graded { fill: var(--review-accent-2); }
+.review__ray--current { fill: var(--review-accent); }
+.review__tick { stroke: var(--review-ink); stroke-width: 2; stroke-linecap: butt; }
+.review__dot { fill: var(--review-ink-2); }
+.review__legend { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; z-index: 2; }
+.review__legend span {
+  position: absolute;
+  top: 38px;
+  transform: translateX(-50%);
+  font: 500 12px/16px var(--font-display);
+  color: var(--review-ink-2);
+  white-space: nowrap;
+}
+.review__legend span.is-past { color: var(--review-ink); }
+.review__count {
+  position: absolute;
+  left: 18px;
+  top: 62px;
+  z-index: 2;
+  font: 500 12px/16px var(--font-display);
+  color: var(--review-ink-2);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.review--done .review__legend, .review--done .review__count { display: none; }
+
+/* ---- the column ----------------------------------------------------------- */
+.review__column {
+  position: relative;
+  z-index: 2;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 96px 24px 48px;
+}
+.review__context {
+  margin: 0 0 20px;
+  font: 500 12px/16px var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--review-ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.review__q {
+  font: 400 36px/42px var(--font-display);
+  letter-spacing: -.01em;
+  color: var(--review-ink);
+  overflow-wrap: anywhere;
+}
+.review__q--m { font-size: 28px; line-height: 34px; }
+.review__q--s { font-size: 22px; line-height: 28px; }
+.review__a {
+  margin-top: 24px;
+  font: 400 24px/32px var(--font-display);
+  color: var(--review-ink);
+  overflow-wrap: anywhere;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 160ms ease-out, transform 160ms ease-out;
+  pointer-events: none;
+}
+.review__a.is-shown { opacity: 1; transform: none; pointer-events: auto; }
+
+.review__source { margin-top: 24px; font: 400 14px/20px var(--font-ui); color: var(--review-ink-2); }
+.review__source.is-hidden { display: none; }
+.review__quote {
+  margin: 0 0 8px;
+  padding-left: 12px;
+  border-left: 2px solid var(--review-line);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.review__actions { display: flex; flex-wrap: wrap; gap: 4px 20px; align-items: center; }
+.review__link {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 500 13px/20px var(--font-ui);
+  color: var(--review-accent);
+  cursor: pointer;
+}
+.review__link:hover { text-decoration: underline; }
+.review__link[disabled] { color: var(--review-ink-2); cursor: default; text-decoration: none; }
+
+/* ---- grading bar (56 px) --------------------------------------------------- */
+.review__bar { display: flex; gap: 8px; height: 56px; margin-top: 32px; }
+.review__btn {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 56px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0 16px;
+  border: 1px solid var(--review-line);
+  border-radius: var(--r2);
+  background: var(--review-btn);
+  font: 500 18px/24px var(--font-display);
+  color: var(--review-ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.review__btn:hover { border-color: var(--review-ink-2); }
+.review__btn:active { transform: translateY(1px); }
+.review__btn--skip { flex: 0 0 auto; font-size: 15px; }
+.review__btn--small { flex: 0 0 auto; height: 44px; font-size: 16px; padding: 0 20px; }
+.review__kbd, .review__btn kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  border: 1px solid var(--review-line);
+  border-radius: 4px;
+  font: 11px/14px var(--font-mono);
+  color: var(--review-ink-2);
+  background: transparent;
+  vertical-align: middle;
+}
+.review__link .review__kbd { margin-left: 6px; }
+.review__sub { font: 400 13px/16px var(--font-ui); color: var(--review-ink-2); }
+.review__undo { margin-top: 12px; min-height: 20px; text-align: right; }
+/* flag and delete during review, the struggling line (BUILD-NOTES "Prompt craft", FEATURES P1.3 b, P1.4 c) */
+.review__tools { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: baseline; gap: 4px 20px; margin-top: 8px; }
+.review__tool { color: var(--review-ink-2); font-weight: 400; }
+.review__tool:hover { color: var(--review-ink); }
+.review__tool--danger:hover { color: var(--danger); }
+.review__flag { font: 500 13px/20px var(--font-ui); color: var(--review-accent); }
+.review__struggle {
+  margin-top: 16px;
+  padding-left: 10px;
+  border-left: 2px solid var(--review-accent-2);
+  font: 400 14px/20px var(--font-ui);
+  color: var(--review-ink);
+}
+
+/* ---- prompt markup inside the overlay (M.markup output) -------------------- */
+#review .cloze-blank {
+  display: inline-block;
+  min-width: 4em;
+  border-bottom: 2px solid var(--review-ink-2);
+  vertical-align: baseline;
+  line-height: .8;
+}
+#review .cloze-reveal {
+  background: var(--hl);
+  color: var(--hl-ink);
+  border-radius: 3px;
+  padding: 0 .12em;
+}
+.review__q--revealed .cloze-reveal { animation: review-fade 160ms ease-out; }
+@keyframes review-fade { from { opacity: 0; } to { opacity: 1; } }
+#review .math-display { display: block; max-width: 100%; overflow-x: auto; overflow-y: hidden; padding: 4px 0; }
+#review .att { display: block; max-width: 100%; height: auto; margin: 12px 0; border-radius: var(--r2); }
+#review .att--missing { font: 12px/16px var(--font-ui); color: var(--review-ink-2); }
+#review .tex { font: 13px/1.4 var(--font-mono); }
+#review .tex--error { text-decoration: underline dotted var(--danger); }
+
+/* ---- empty + end screens --------------------------------------------------- */
+.review__end, .review__empty { text-align: center; }
+.review__end h1, .review__empty h1 {
+  margin: 0 0 12px;
+  font: 400 36px/42px var(--font-display);
+  letter-spacing: -.01em;
+  color: var(--review-ink);
+}
+.review__done-caption { margin: 0 0 24px; font: 500 14px/20px var(--font-display); color: var(--review-ink-2); }
+/* a folder review (FEATURES L1.5) names its folder above the end and empty screens */
+.review__scope { margin: 0 0 8px; font: 500 12px/16px var(--font-display); text-transform: uppercase; letter-spacing: .08em; color: var(--review-ink-2); overflow-wrap: anywhere; }
+.review__summary { margin: 0; font: 400 16px/24px var(--font-ui); color: var(--review-ink-2); }
+.review__end .review__undo { text-align: center; }
+.review__shaky {
+  list-style: none;
+  margin: 32px 0 0;
+  padding: 0;
+  text-align: left;
+  border-top: 1px solid var(--review-line);
+}
+.review__shaky li {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--review-line);
+}
+.review__shaky-body { flex: 1 1 auto; min-width: 0; }
+.review__shaky .review__context { margin-bottom: 2px; }
+.review__shaky-q { font: 500 15px/20px var(--font-display); color: var(--review-ink); overflow-wrap: anywhere; }
+.review__shaky-q .math-display { padding: 0; }
+.review__shaky-flag { color: var(--review-accent); text-transform: none; letter-spacing: 0; }
+.review__flagged-title { margin: 32px 0 0; font: 500 12px/16px var(--font-display); text-transform: uppercase; letter-spacing: .08em; text-align: left; color: var(--review-ink-2); }
+.review__flagged { margin-top: 8px; }
+.review__end-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 32px; }
+
+/* ---- copy fallback (select-the-text) --------------------------------------- */
+.review__copybuf {
+  position: fixed;
+  left: -9999px;
+  bottom: 24px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  resize: none;
+  border: 1px solid var(--review-line);
+  border-radius: var(--r2);
+  background: var(--review-btn);
+  color: var(--review-ink);
+  font: 13px/1.4 var(--font-mono);
+  padding: 8px;
+}
+.review__copybuf.is-shown {
+  left: 24px;
+  width: min(480px, calc(100vw - 48px));
+  height: 96px;
+  opacity: 1;
+  z-index: 4;
+}
+
+/* ---- narrow (≤ 520: nothing scrolls horizontally, sub-labels go) ------------- */
+@media (max-width: 520px) {
+  .review__column { padding: 96px 16px 32px; }
+  .review__exit { right: 16px; }
+  .review__sub { display: none; }
+  .review__btn { padding: 0 12px; }
+  .review__q { font-size: 28px; line-height: 34px; }
+  .review__q--s { font-size: 22px; line-height: 28px; }
+}
+
+/* SELF-CHECK (BUILD-NOTES css/review.css): #review overlay (fixed inset 0, --review-bg, scroll inside), column
+   max-width 640 centred padding 24, "Exit review ✕" 14-px link in --review-accent top-right, context line
+   12/16 Outfit 500 uppercase .08em --review-ink-2 nowrap ellipsis, question Outfit 400 36/42 (+ 28/34 --m,
+   22/28 --s), answer 24/32 springing in (opacity/transform 160 ms), source quote 14/20 --review-ink-2,
+   grading bar 56 px (Outfit 500 18/24 on --review-btn, 1-px --review-line border, 11-px mono kbd caps,
+   equal halves), starburst SVG top-left (clipped to its right half) + 12-px Outfit 500 legend, "12 of 40"
+   count, cloze blank/reveal, .math-display scrolling, empty and end screens, copy fallback, ≤ 520 px rules.
+   BUILD-NOTES "Prompt craft": .review__tools (quiet Flag / Delete links, right-aligned under the undo line),
+   .review__flag "⚑ Flagged" in --review-accent, .review__struggle (14/20 --review-ink, 2-px --review-accent-2 rule),
+   the end screen's .review__flagged-title / .review__flagged list and the still-shaky .review__shaky-flag mark.
+   Dark mode comes from the §13 tokens of styles.css; no custom properties are defined here. */

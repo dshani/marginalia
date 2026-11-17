@@ -1,0 +1,55 @@
+/* css/tabs.css — owned by js/tabs.js (BUILD-NOTES "CSS ownership", "Tabs"; DECISIONS D30).
+ * The tab strip #tabs: shown with two or more tabs, above the screen, as high as --tabs-h in styles.css (which owns
+ * how the screens share the viewport with it). Colours, spacing and radii are the §13 tokens. The strip never makes
+ * the page scroll sideways: the tabs shrink to 96 px, then the list scrolls inside the strip. */
+
+/* z-index 35: above the page and its menus (30), below the review overlay, the snip overlay and the bottom sheet
+   (40), the banner (50), Settings, the dialogs and the toasts. A review covers the strip. */
+#tabs {
+  position: sticky; top: 0; z-index: 35;
+  display: flex; align-items: stretch; flex: 0 0 auto;
+  height: var(--tabs-h); min-width: 0; box-sizing: border-box;
+  background: var(--surface-2); border-bottom: 1px solid var(--line);
+  color: var(--ink-2); font: 13px/18px var(--font-ui);
+  -webkit-user-select: none; user-select: none;
+}
+#tabs.is-hidden { display: none; }
+
+.tabs__list { display: flex; align-items: stretch; flex: 0 1 auto; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.tabs__list::-webkit-scrollbar { display: none; }
+
+/* a tab is 208 px wide while there is room (a width, not a flex-basis: the list is as wide as its tabs, so the "+"
+   stays next to the last tab); when the strip is full the tabs shrink to 96 px, then the list scrolls */
+.tabs__tab {
+  display: flex; align-items: center; flex: 0 1 auto; width: 208px; min-width: 96px; box-sizing: border-box;
+  border-right: 1px solid var(--line);
+}
+.tabs__tab:hover { color: var(--ink); }
+.tabs__tab.is-active { background: var(--bg); color: var(--ink); box-shadow: 0 1px 0 var(--bg); }   /* it joins the page below */
+
+.tabs__select {
+  flex: 1 1 auto; min-width: 0; height: 100%; margin: 0; padding: 0 var(--s1) 0 var(--s3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left;
+  color: inherit; font: inherit; background: none; border: 0; border-radius: 0; cursor: pointer;
+}
+.tabs__tab.is-active .tabs__select { font-weight: 500; cursor: default; }
+
+.tabs__close, .tabs__new {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; padding: 0;
+  color: var(--ink-3); background: none; border: 0; border-radius: var(--r1); cursor: pointer;
+}
+.tabs__close { width: 20px; height: 20px; margin: 0 var(--s1) 0 0; font: 15px/1 var(--font-ui); }
+.tabs__new { width: 26px; height: 26px; margin: 4px var(--s2); font: 18px/1 var(--font-ui); }
+.tabs__close:hover, .tabs__new:hover { color: var(--ink); background: var(--line); }
+
+.tabs__select:focus-visible, .tabs__close:focus-visible, .tabs__new:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+
+/* a tab that is dragged (D31): the mark shows where it would go, before this tab or, on "+", at the end; a window
+   with one tab shows its strip as the place to drop while a tab of another window is over it */
+.tabs__tab.is-drop, .tabs__new.is-drop { box-shadow: inset 3px 0 0 var(--focus); }
+#tabs.is-dropzone { outline: 2px dashed var(--focus); outline-offset: -3px; }
+.tabs__tab.is-dragging { opacity: .35; }                  /* the tab that is being dragged: lifted out of the strip */
+
+/* SELF-CHECK (BUILD-NOTES "CSS ownership"): #tabs (and .is-hidden, .is-dropzone), .tabs__list, .tabs__tab (and
+   .is-active, .is-drop, .is-dragging), .tabs__select, .tabs__close, .tabs__new (and .is-drop). No token of its own: --tabs-h is in
+   styles.css. */

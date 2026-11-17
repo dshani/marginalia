@@ -1,0 +1,40 @@
+/* css/desktop.css — the DOM that js/desktop.js builds (BUILD-NOTES "CSS ownership"; FEATURES E2.2):
+   #cover, "Marginalia is now an app", over the whole page of a browser tab that the desktop app replaced. It is opaque
+   (nothing of the page shows through or can be reached), above the ? sheet (1400) and everything of the page, and below
+   the confirm dialog (1500: "Replace today's backup?" opens above it), the toasts (1600) and the #tabLock notice (2000).
+   Tokens of SPEC §13 only, so both themes restyle it. The welcome card of the app's home screen is M.library's
+   (css/library.css, .lib-welcome). */
+
+#cover {
+  position: fixed; inset: 0; z-index: 1450;
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--s4); box-sizing: border-box; overflow: auto;
+  background: var(--bg); color: var(--ink);
+}
+#cover.is-hidden { display: none; }                   /* the host is display:flex above (id specificity) */
+.cover__panel {
+  box-sizing: border-box; width: 480px; max-width: 100%; max-height: 100%; overflow: auto;
+  padding: var(--s6) var(--s5) var(--s5); background: var(--surface); color: var(--ink);
+  border: 1px solid var(--line); border-radius: var(--r3); box-shadow: 0 16px 48px rgba(0, 0, 0, .18);
+}
+.cover__panel:focus { outline: none; }                /* the panel takes focus only as a fallback */
+.cover__title { margin: 0 0 var(--s3); font: 500 22px/28px var(--font-display); color: var(--ink); overflow-wrap: anywhere; }
+.cover__forward { margin: 0 0 var(--s3); color: var(--accent); font: 500 14px/20px var(--font-ui); }
+.cover__forward.is-hidden { display: none; }
+.cover__text { margin: 0; color: var(--ink-2); font: 14px/20px var(--font-ui); overflow-wrap: anywhere; }
+.cover__steps { margin: var(--s2) 0 0; padding: 0; list-style: none; color: var(--ink); font: 14px/22px var(--font-ui); }
+.cover__steps li { overflow-wrap: anywhere; }
+.cover__actions { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s5); }
+.cover__status, .cover__note, .cover__error { margin: var(--s3) 0 0; font-size: 13px; line-height: 18px; overflow-wrap: anywhere; }
+.cover__status { color: var(--ink); }
+.cover__note { color: var(--ink-2); }
+.cover__error { color: var(--danger); }
+.cover__status:empty, .cover__note:empty, .cover__error:empty { margin-top: 0; }   /* live regions stay rendered */
+@media (max-width: 599px) {
+  .cover__panel { padding: var(--s5) var(--s4) var(--s4); }
+  .cover__actions .btn { flex: 1 1 auto; }
+}
+
+/* SELF-CHECK (BUILD-NOTES "CSS ownership", css/desktop.css): #cover (fixed, inset 0, z-index 1450: above the ? sheet,
+   below #confirm, #toasts and #tabLock; opaque var(--bg)); .cover__panel / __title / __forward / __text / __steps /
+   __actions / __status / __note / __error; one-column buttons below 600 px; SPEC §13 tokens only. */

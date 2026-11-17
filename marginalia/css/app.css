@@ -1,0 +1,256 @@
+/* css/app.css — the DOM that js/app.js builds (BUILD-NOTES "CSS ownership"):
+   #toasts (bottom-centre stack), #confirm (centred dialog with backdrop), #banner (top strip),
+   #shortcuts (the ? sheet), #tabLock ("Marginalia is open in another tab") and the 2-px --focus focus ring of
+   SPEC §13. Tokens of §13 only: every colour,
+   radius and spacing is a var(), so the dark blocks in styles.css restyle everything here. */
+
+/* ---------- focus ring (§13: 2 px --focus) ---------- */
+
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.toast__action:focus-visible,
+.toast__close:focus-visible,
+.banner__action:focus-visible,
+.confirm .btn:focus-visible,
+.sheet__close:focus-visible { outline-offset: 1px; }
+.confirm:focus-visible,
+.sheet:focus-visible { outline: none; }                 /* the panels take focus for Esc, not for the ring */
+
+/* The hosts are display:flex below (id specificity), so .is-hidden must still win. */
+#confirm.is-hidden,
+#shortcuts.is-hidden,
+#banner.is-hidden { display: none; }
+
+/* ---------- toasts ---------- */
+
+#toasts {
+  position: fixed;
+  left: 50%;
+  bottom: var(--s4);
+  transform: translateX(-50%);
+  z-index: 1600;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s2);
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  pointer-events: none;                                 /* the stack never blocks the page; toasts do */
+}
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  box-sizing: border-box;
+  max-width: calc(100vw - 32px);
+  min-width: 0;
+  padding: 10px var(--s3);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--r2);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .14), var(--page-shadow);
+  font: 14px/20px var(--font-ui);
+  animation: toast-in .16s ease-out;
+}
+.toast--out { opacity: 0; transform: translateY(6px); transition: opacity .14s ease, transform .14s ease; }
+.toast__body { flex: 1 1 auto; min-width: 0; }
+.toast__text { overflow-wrap: anywhere; }
+.toast__detail { margin-top: 2px; color: var(--ink-2); font-size: 13px; line-height: 18px; overflow-wrap: anywhere; }
+.toast__actions { display: flex; flex-wrap: wrap; gap: var(--s1); flex: 0 0 auto; }
+.toast .btn,
+.toast__action { padding: 3px 10px; font-size: 13px; line-height: 18px; white-space: nowrap; }
+.toast__close {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  margin-right: -4px;
+  border: 0;
+  border-radius: var(--r1);
+  background: transparent;
+  color: var(--ink-3);
+  font: 18px/24px var(--font-ui);
+  cursor: pointer;
+}
+.toast__close:hover { color: var(--ink); background: var(--surface-2); }
+.toast .kbd { margin-left: 2px; }
+@media (max-width: 599px) {
+  .toast { flex-wrap: wrap; }
+  .toast__close { order: 1; }                           /* stays on the text row … */
+  .toast__actions { order: 2; width: 100%; justify-content: flex-end; }   /* … the actions wrap below */
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- confirm dialog ---------- */
+
+#confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s4);
+  background: rgba(0, 0, 0, .38);
+  animation: fade-in .12s ease-out;
+}
+.confirm {
+  box-sizing: border-box;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: var(--s5) var(--s5) var(--s4);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--r3);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, .22);
+  animation: pop-in .14s ease-out;
+}
+.confirm__title { margin: 0 0 var(--s2); font: 500 18px/24px var(--font-display); overflow-wrap: anywhere; }
+.confirm__body { margin: 0 0 var(--s5); color: var(--ink-2); font: 14px/20px var(--font-ui); overflow-wrap: anywhere; }
+.confirm__actions { display: flex; justify-content: flex-end; gap: var(--s2); }
+.confirm--danger .confirm__ok { background: var(--danger); border-color: var(--danger); color: #fff; }
+.confirm--danger .confirm__ok:hover { filter: brightness(1.08); }
+.confirm--danger .confirm__title { color: var(--danger); }
+
+/* ---------- banner (top strip) ---------- */
+
+#banner {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+.banner__item {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s2) var(--s4);
+  color: var(--ink);
+  font: 13px/18px var(--font-ui);
+}
+.banner__item + .banner__item { border-top: 1px solid var(--line); }
+.banner__item--warn { box-shadow: inset 3px 0 0 var(--accent); }
+.banner__text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.banner__actions { display: flex; gap: var(--s1); flex: 0 0 auto; }
+.banner .btn { padding: 2px 10px; font-size: 13px; line-height: 18px; white-space: nowrap; }
+
+/* ---------- shortcut sheet (the ? sheet) ---------- */
+
+#shortcuts {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s4);
+  background: rgba(0, 0, 0, .38);
+  animation: fade-in .12s ease-out;
+}
+.sheet {
+  box-sizing: border-box;
+  width: 760px;
+  max-width: calc(100vw - 32px);
+  max-height: 80vh;
+  overflow: auto;
+  padding: var(--s5);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--r3);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, .22);
+  animation: pop-in .14s ease-out;
+}
+.sheet__head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s3); margin-bottom: var(--s2); }
+.sheet__title { margin: 0; font: 500 22px/28px var(--font-display); }
+.sheet__hint { margin-top: 2px; color: var(--ink-3); font-size: 12px; line-height: 16px; }
+.sheet__close { flex: 0 0 auto; width: 32px; height: 32px; padding: 0; font-size: 20px; line-height: 32px; }
+.sheet__section { margin-top: var(--s4); }
+.sheet__h {
+  margin: 0 0 var(--s1);
+  color: var(--ink-2);
+  font: 500 12px/16px var(--font-display);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.sheet__grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: var(--s5); row-gap: 0; }
+.sc-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  min-width: 0;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+.sc-label { flex: 1 1 auto; min-width: 0; font-size: 13px; line-height: 18px; overflow-wrap: anywhere; }
+.sc-keys { display: flex; gap: 4px; flex: 0 0 auto; }
+.sc-keys .kbd { white-space: nowrap; }
+.sc-unbound { color: var(--ink-3); font-size: 12px; font-style: italic; }
+@media (max-width: 599px) {
+  .sheet { padding: var(--s4); }
+  .sheet__grid { grid-template-columns: 1fr; }
+}
+
+/* ---------- "Marginalia is open in another tab" (#tabLock) ----------
+   Built by showTabLock() when js/store.js stops this tab writing because a newer tab of this origin took over:
+   a blocking notice over the whole app, above the toasts (1600), the confirm dialog (1500) and the ? sheet (1400).
+   Tokens only, so both themes restyle it. */
+
+#tabLock {
+  position: fixed; inset: 0; z-index: 2000;
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--s4); box-sizing: border-box;
+  background: rgba(0, 0, 0, .45);
+}
+.tablock__panel {
+  box-sizing: border-box; width: 440px; max-width: 100%; max-height: 100%; overflow: auto;
+  padding: var(--s5); background: var(--surface); color: var(--ink);
+  border: 1px solid var(--line); border-radius: var(--r3); box-shadow: 0 16px 48px rgba(0, 0, 0, .28);
+}
+.tablock__panel:focus { outline: none; }               /* the panel takes focus only as a fallback */
+.tablock__title { margin: 0 0 var(--s2); font: 500 18px/24px var(--font-display); overflow-wrap: anywhere; }
+.tablock__body { margin: 0; color: var(--ink-2); font: 14px/20px var(--font-ui); overflow-wrap: anywhere; }
+.tablock__unsaved { margin-top: var(--s4); }
+.tablock__label { margin: 0 0 var(--s2); color: var(--ink); font: 500 14px/20px var(--font-ui); }
+.tablock__text {
+  display: block; width: 100%; min-height: 96px; max-height: 40vh;
+  background: var(--surface-2); color: var(--ink);
+  font: 13px/1.45 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.tablock__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s2); margin-top: var(--s5); }
+.tablock__status { margin-top: var(--s2); color: var(--ink-2); font-size: 13px; line-height: 18px; text-align: right; overflow-wrap: anywhere; }
+.tablock__status:empty { margin-top: 0; }             /* stays rendered: a live region that is shown later is not read */
+@media (max-width: 599px) {
+  .tablock__panel { padding: var(--s4); }
+  .tablock__actions .btn { flex: 1 1 auto; }
+}
+
+/* ---------- shared animation + motion preference ---------- */
+
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(6px) scale(.985); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .toast, .confirm, .sheet, #confirm, #shortcuts { animation: none; }
+  .toast--out { transition: none; }
+}
+
+/* SELF-CHECK (BUILD-NOTES "CSS ownership", css/app.css): #toasts bottom-centre stack (.toast, .toast__body, .toast__text,
+   .toast__detail, .toast__actions, .toast__action, .toast__close, .toast--out; --surface, --line border, soft shadow,
+   max-width calc(100vw - 32px)); #confirm backdrop + .confirm dialog (360 px, .confirm__title/__body/__actions/__ok/__cancel,
+   .confirm--danger); #banner top strip on --surface-2 (.banner__item, .banner__text, .banner__actions, .banner__action,
+   .banner__close, .banner__item--warn); #shortcuts sheet (.sheet, .sheet__head/__title/__hint/__close/__section/__h/__grid,
+   .sc-row, .sc-label, .sc-keys with .kbd caps, .sc-unbound; two columns, max-height 80vh, one column below 600 px);
+   #tabLock notice (fixed, inset 0, z-index 2000 above the toasts, the confirm dialog and the sheet; .tablock__panel /
+   __title / __body / __unsaved / __label / __text / __actions / __status; one-column buttons below 600 px);
+   :focus-visible 2 px --focus ring; .is-hidden kept winning over the id-level display rules; SPEC §13 tokens only. */

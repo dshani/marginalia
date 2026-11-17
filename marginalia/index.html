@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Marginalia</title>
+  <meta name="marginalia-build" content="local">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;700&display=swap">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.47/katex.min.css" integrity="sha384-nH0MfJ44wi1dd7w6jinlyBgljjS8EJAh2JBoRad8a3VDw2K69vfaaqm4WnR+gXtA" crossorigin="anonymous">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/library.css">
+  <link rel="stylesheet" href="css/reader.css">
+  <link rel="stylesheet" href="css/margin.css">
+  <link rel="stylesheet" href="css/editor.css">
+  <link rel="stylesheet" href="css/list.css">
+  <link rel="stylesheet" href="css/review.css">
+  <link rel="stylesheet" href="css/snip.css">
+  <link rel="stylesheet" href="css/stats.css">
+  <link rel="stylesheet" href="css/tabs.css">
+  <link rel="stylesheet" href="css/desktop.css">
+</head>
+<body>
+  <noscript>Marginalia needs JavaScript. Enable it and reload the page.</noscript>
+  <div id="app">
+    <div id="banner" class="is-hidden"></div>
+    <div id="tabs" class="is-hidden"></div>       <!-- tabs.js (the tab strip, shown with two or more tabs) -->
+    <section id="library"></section>              <!-- library.js renders the home screen here -->
+    <section id="deck" class="is-hidden"></section> <!-- library.js renders the deck page here -->
+    <section id="stats" class="is-hidden"></section> <!-- stats.js renders the statistics page here -->
+    <section id="reader" class="is-hidden" tabindex="-1">
+      <div id="toolbar"></div>                    <!-- reader.js -->
+      <div id="scroller">
+        <div class="gutter"></div>
+        <div id="pages"></div>                    <!-- pdfview.js -->
+        <div id="margin"></div>                   <!-- margin.js -->
+      </div>
+      <div id="adder" class="is-hidden"></div>    <!-- reader.js -->
+      <div id="find" class="is-hidden"></div>     <!-- reader.js -->
+      <div id="snipOverlay" class="is-hidden"></div> <!-- snip.js -->
+      <div id="sheet" class="is-hidden"></div>    <!-- margin.js (stack mode) -->
+      <div id="list" class="is-hidden"></div>     <!-- list.js (drawer) -->
+    </section>
+    <div id="review" class="is-hidden" tabindex="-1"></div>  <!-- review.js -->
+    <div id="settings" class="is-hidden"></div>   <!-- library.js -->
+    <div id="shortcuts" class="is-hidden"></div>  <!-- app.js (the ? sheet) -->
+    <div id="toasts"></div>                       <!-- app.js -->
+    <div id="confirm" class="is-hidden"></div>    <!-- app.js -->
+    <div id="cover" class="is-hidden"></div>      <!-- desktop.js ("Marginalia is now an app") -->
+    <input id="fileInput" type="file" accept="application/pdf,.pdf" hidden>
+  </div>
+  <!-- cdnjs files carry Subresource Integrity (SHA-384 of the pinned files): a substituted file is refused. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script>
+  <script>
+    /* PDF.js worker (SPEC §18 workerSrc), integrity-checked. A worker URL cannot carry an integrity
+       attribute and PDF.js would importScripts() the cdnjs file unchecked, so workerSrc is a same-origin
+       bootstrap that fetches pdf.worker.min.js with the pinned digest and runs only bytes that match.
+       When no real worker can start (CSP without blob:/data: workers, connect-src, offline) PDF.js falls
+       back to its main-thread "fake worker"; that loader is replaced below so the fallback also loads the
+       file from cdnjs through an integrity-checked script element (the artifact CSP allows cdnjs scripts).
+       A digest mismatch fails closed: the PDF does not open and nothing unchecked runs. */
+    (function () {
+      "use strict";
+      var lib = window.pdfjsLib;
+      if (!lib || !lib.GlobalWorkerOptions) return;
+      var WORKER_URL = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      var WORKER_SRI = "sha384-SnzOobpRMLXZ52iJvZm/C0fYw0OQemTXzTjIsdsfMcrCtCEe9qgzxTd3RSklO5x2";
+
+      // Runs inside the worker (serialized below). Any failure is rethrown from a timer so it reaches the
+      // Worker "error" event, on which PDF.js switches to the fake worker. Outside a worker it does nothing.
+      function workerBootstrap(url, sri) {
+        "use strict";
+        if (typeof importScripts !== "function") return;
+        function fail(e) { setTimeout(function () { throw e; }, 0); }
+        try {
+          fetch(url, { integrity: sri, mode: "cors", credentials: "omit" })
+            .then(function (res) {
+              if (!res.ok) throw new Error("pdf.worker.min.js: HTTP " + res.status);
+              return res.blob();
+            })
+            .then(function (body) {
+              var src = URL.createObjectURL(new Blob([body], { type: "text/javascript" }));
+              try { importScripts(src); } finally { URL.revokeObjectURL(src); }
+            })
+            .then(null, fail);
+        } catch (e) { fail(e); }
+      }
+      var BOOT = "(" + workerBootstrap.toString() + ")(" + JSON.stringify(WORKER_URL) + ", " + JSON.stringify(WORKER_SRI) + ");";
+
+      // PDF.js starts a same-origin workerSrc directly and wraps any other one in importScripts(); a
+      // blob: URL is used when PDF.js counts it as same-origin (http/https), a data: URL otherwise
+      // (file://, opaque origins), since a data: URL imports from any origin.
+      function samePageOrigin(u) {
+        try {
+          var base = new URL(window.location.href);
+          if (!base.origin || base.origin === "null") return false;
+          return new URL(u, base).origin === base.origin;
+        } catch (e) { return false; }
+      }
+      var workerUrl = "data:text/javascript;charset=utf-8," + encodeURIComponent(BOOT);
+      try {
+        var blobUrl = URL.createObjectURL(new Blob([BOOT], { type: "text/javascript" }));
+        if (samePageOrigin(blobUrl)) workerUrl = blobUrl; else URL.revokeObjectURL(blobUrl);
+      } catch (e) { /* keep the data: URL */ }
+      lib.GlobalWorkerOptions.workerSrc = workerUrl;
+
+      // Main-thread fallback (PDFWorker._setupFakeWorkerGlobal in the pinned 3.11.174): the same file,
+      // loaded by a script element with integrity + crossorigin instead of PDF.js's loadScript(workerSrc).
+      var mainThread = null;
+      function mainThreadWorker() {
+        var ready = window.pdfjsWorker && window.pdfjsWorker.WorkerMessageHandler;
+        if (ready) return Promise.resolve(ready);
+        if (!mainThread) {
+          mainThread = new Promise(function (resolve, reject) {
+            var s = document.createElement("script");
+            s.setAttribute("integrity", WORKER_SRI);
+            s.setAttribute("crossorigin", "anonymous");
+            s.onload = function () {
+              var w = window.pdfjsWorker;
+              if (w && w.WorkerMessageHandler) resolve(w.WorkerMessageHandler);
+              else reject(new Error("pdf.worker.min.js did not define pdfjsWorker"));
+            };
+            s.onerror = function () {
+              if (s.parentNode) s.parentNode.removeChild(s);
+              reject(new Error("Cannot load script at: " + WORKER_URL + " (offline or integrity mismatch)"));
+            };
+            s.src = WORKER_URL;
+            (document.head || document.documentElement).appendChild(s);
+          });
+          mainThread.then(null, function () { mainThread = null; });  // a later open may retry
+        }
+        return mainThread;
+      }
+      try {
+        if (lib.PDFWorker) {
+          Object.defineProperty(lib.PDFWorker, "_setupFakeWorkerGlobal", { configurable: true, get: mainThreadWorker });
+        }
+      } catch (e) { /* without it the fallback loads the bootstrap, which is inert outside a worker: fails closed */ }
+    })();
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.47/katex.min.js" integrity="sha384-CwjPRVHTvLiMBFjEoij+QZViMV5rhTOIp7CJzl24JEqpRDA1sJFHVXXLURktbYYp" crossorigin="anonymous"></script>
+  <script src="js/util.js"></script>
+  <script src="js/bus.js"></script>
+  <script src="js/settings.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/scheduler.js"></script>
+  <script src="js/prompts.js"></script>
+  <script src="js/similar.js"></script>
+  <script src="js/context.js"></script>
+  <script src="js/keys.js"></script>
+  <script src="js/layout.js"></script>
+  <script src="js/anchors.js"></script>
+  <script src="js/markup.js"></script>
+  <script src="js/exporter.js"></script>
+  <script src="js/obsidian.js"></script>
+  <script src="js/backup.js"></script>
+  <script src="js/cache.js"></script>
+  <script src="js/attachments.js"></script>
+  <script src="js/pdfview.js"></script>
+  <script src="js/reader.js"></script>
+  <script src="js/editor.js"></script>
+  <script src="js/margin.js"></script>
+  <script src="js/list.js"></script>
+  <script src="js/snip.js"></script>
+  <script src="js/vision.js"></script>
+  <script src="js/review.js"></script>
+  <script src="js/stats.js"></script>
+  <script src="js/library.js"></script>
+  <script src="js/tabs.js"></script>
+  <script src="js/desktop.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    (function () {
+      function boot() {
+        var M = window.Marginalia;
+        if (!M || !M.app || typeof M.app.boot !== "function") {
+          console.error("Marginalia: boot failed - js/app.js did not load");
+          return;
+        }
+        try {
+          var p = M.app.boot();
+          if (p && typeof p.then === "function") {
+            p.then(null, function (err) { console.error("Marginalia: boot failed", err); });
+          }
+        } catch (err) {
+          console.error("Marginalia: boot failed", err);
+        }
+      }
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", boot, { once: true });
+      } else {
+        boot();
+      }
+    })();
+  </script>
+</body>
+</html>
+<!-- SELF-CHECK (SPEC §18, BUILD-NOTES "index.html skeleton"): stylesheet order Google Fonts, katex.min.css 0.16.47,
+     styles.css, css/app|library|reader|margin|editor|list|review|snip|stats|tabs|desktop.css; hosts #app #banner #tabs #library #deck #stats #reader
+     (tabindex -1) #toolbar #scroller .gutter #pages #margin #adder #find #snipOverlay #sheet #list #review (tabindex -1)
+     #settings #shortcuts #toasts #confirm #cover #fileInput; scripts pdf.min.js 3.11.174 + workerSrc, katex.min.js 0.16.47,
+     every cdnjs script and stylesheet tag with integrity (sha384) + crossorigin="anonymous", workerSrc = an integrity-checking
+     bootstrap for pdf.worker.min.js 3.11.174 and an integrity-checked main-thread fallback (test/index-sri.test.js),
+     js/util bus settings store scheduler prompts similar context keys layout anchors markup exporter obsidian backup cache
+     attachments pdfview reader editor margin list snip vision review stats library tabs desktop app (30 modules; obsidian:
+     BUILD-NOTES "Obsidian"; backup: BUILD-NOTES "Automatic backup"; desktop: BUILD-NOTES "Desktop app (binding)", the
+     app's mode and the cover of #cover; similar: BUILD-NOTES "Prompt craft"; stats: BUILD-NOTES "Scheduling and
+     statistics", the page of #stats; tabs: BUILD-NOTES "Tabs", the strip of #tabs), then Marginalia.app.boot() on
+     DOMContentLoaded.
+     <meta name="marginalia-build" content="local"> (tools/bundle.py --artifact rewrites it to "artifact"). -->

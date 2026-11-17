@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "marginalia-test",
+      "url": "http://127.0.0.1:8791",
+      "port": 8791
+    },
+    {
+      "name": "marginalia",
+      "url": "http://127.0.0.1:8765",
+      "port": 8765
+    }
+  ]
+}

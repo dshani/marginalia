@@ -1,0 +1,257 @@
+/* css/reader.css — owned by js/reader.js (BUILD-NOTES "CSS ownership").
+ * Toolbar, page column, .page, highlight / text / dim layers, adder, find bar, page box, resume pill,
+ * "Preparing document…" bar, the "no text layer" chip, the chapter-mark field, and the structural
+ * differences of .reader--rail / .reader--stack. Colours, spacing and radii are the §13 tokens only. */
+
+/* ---------- reader screen structure (SPEC §2) ---------- */
+/* No height here: styles.css owns #reader's box (BUILD-NOTES "CSS ownership"): height 100vh, then 100dvh under
+ * @supports, so the column matches the visible viewport when a mobile browser shows its toolbar. This selector
+ * (specificity 1,1,0, linked after styles.css) would beat that 1,0,0 rule in every browser, leaving the bottom
+ * of #scroller and of the #list drawer under the toolbar. test/reader-css.test.js keeps it that way. */
+#reader:not(.is-hidden) { display: flex; flex-direction: column; position: relative; box-sizing: border-box; }
+#reader:focus { outline: none; }
+
+/* ---------- toolbar: 44 px ---------- */
+#toolbar {
+  flex: 0 0 var(--toolbar-h); height: var(--toolbar-h); box-sizing: border-box;
+  display: flex; align-items: center; gap: var(--s2); padding: 0 var(--s3);
+  background: var(--surface); border-bottom: 1px solid var(--line);
+  white-space: nowrap; overflow: hidden;
+}
+.tb-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--s1);
+  height: 28px; min-width: 28px; padding: 0 var(--s2); border: 0; border-radius: var(--r1);
+  background: transparent; color: var(--ink); font: 500 13px/20px var(--font-ui); cursor: pointer;
+}
+.tb-btn:hover { background: var(--surface-2); }
+.tb-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.tb-btn[disabled] { color: var(--ink-3); cursor: default; background: transparent; }
+.tb-btn.is-on, .tb-btn[aria-pressed="true"] { background: var(--surface-2); color: var(--accent); }
+.tb-btn[aria-expanded="true"] { background: var(--surface-2); }
+.tb-group { display: inline-flex; align-items: center; gap: 2px; }
+.tb-back__chev { font-size: 18px; line-height: 1; }
+.tb-name { max-width: 260px; font: 500 15px/20px var(--font-display); }
+.tb-name__text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-name__pen { color: var(--ink-3); font-size: 12px; }
+.tb-name:hover .tb-name__pen { color: var(--ink-2); }
+.tb-rename {
+  flex: 0 1 220px; min-width: 96px;
+  width: 220px; height: 28px; padding: 0 var(--s2); box-sizing: border-box;
+  border: 1px solid var(--line); border-radius: var(--r1); background: var(--surface); color: var(--ink);
+  font: 500 15px/20px var(--font-display);
+}
+.tb-rename:focus { outline: 2px solid var(--focus); outline-offset: 0; }
+.tb-rename.is-hidden { display: none; }
+.tb-pagebox { display: inline-flex; align-items: center; gap: var(--s1); color: var(--ink-2); font: 13px/20px var(--font-ui); }
+.tb-page {
+  width: 48px; height: 28px; padding: 0 var(--s1); box-sizing: border-box;
+  border: 1px solid var(--line); border-radius: var(--r1); background: var(--surface); color: var(--ink);
+  font: 13px/20px var(--font-mono); text-align: right;
+}
+.tb-page:focus { outline: 2px solid var(--focus); outline-offset: 0; }
+.tb-zoom { min-width: 52px; font: 13px/20px var(--font-mono); color: var(--ink-2); }
+/* fit width: muted while the page is fitted, lit while the zoom is manual (reads as "back to fit") */
+.tb-zoom-fit { color: var(--ink-3); }
+.tb-zoom-fit.is-manual { background: var(--surface-2); color: var(--accent); }
+.tb-seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r1); overflow: hidden; }
+.tb-seg__btn {
+  height: 26px; padding: 0 var(--s2); border: 0; background: var(--surface); color: var(--ink-2);
+  font: 500 12px/18px var(--font-ui); cursor: pointer;
+}
+.tb-seg__btn + .tb-seg__btn { border-left: 1px solid var(--line); }
+.tb-seg__btn.is-on { background: var(--ink); color: var(--surface); }
+.tb-seg__btn[disabled] { color: var(--ink-3); cursor: not-allowed; }
+.tb-seg__btn:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+/* the snip hint gives way first: it shrinks with an ellipsis instead of pushing the bar's end out of view */
+.tb-hint { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); font: 12px/16px var(--font-ui); }
+.tb-spacer { flex: 1 1 auto; }
+.tb-resume { background: var(--accent); color: var(--surface); border-radius: 999px; padding: 0 var(--s3); }
+.tb-resume:hover { background: var(--accent); color: var(--surface); }
+.tb-resume.is-hidden { display: none; }
+.tb-help { width: 28px; padding: 0; font-family: var(--font-mono); }
+.tb-more { display: none; }
+
+/* dropdown menus (Review ▾ and the narrow-mode ⋯) */
+.tb-menu {
+  position: fixed; z-index: 60; min-width: 200px; padding: var(--s1); box-sizing: border-box;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r2); box-shadow: var(--page-shadow);
+  max-width: calc(100vw - 32px);
+}
+.tb-menu__item {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s4); width: 100%;
+  padding: 6px var(--s2); border: 0; border-radius: var(--r1); background: transparent; color: var(--ink);
+  font: 13px/20px var(--font-ui); text-align: left; cursor: pointer; white-space: nowrap;
+}
+.tb-menu__item:hover, .tb-menu__item:focus-visible { background: var(--surface-2); outline: none; }
+.tb-menu__kbd { color: var(--ink-3); }
+
+/* ---------- scroll container, page column, pages ---------- */
+#scroller {
+  flex: 1 1 auto; min-height: 0; position: relative;
+  display: flex; align-items: flex-start; overflow: auto; -webkit-overflow-scrolling: touch;
+}
+#scroller > .gutter { flex: 1 1 24px; min-width: 24px; }
+#pages { flex: 0 0 auto; position: relative; }
+.page {
+  position: relative; box-sizing: content-box; margin: 8px auto 16px;
+  background: var(--page-bg); box-shadow: var(--page-shadow); isolation: isolate; overflow: hidden;
+}
+.page > canvas { display: block; }
+
+/* ---------- PDF.js text layer (BUILD-NOTES, verbatim) ---------- */
+.textLayer{position:absolute;inset:0;overflow:hidden;line-height:1;text-align:initial;opacity:1;z-index:2}
+.textLayer span,.textLayer br{color:transparent;position:absolute;white-space:pre;cursor:text;transform-origin:0 0}
+.textLayer ::selection{background:rgba(47,111,224,.35)}
+.textLayer .endOfContent{display:block;position:absolute;inset:100% 0 0;z-index:-1;cursor:default;user-select:none}
+.textLayer.selecting .endOfContent{top:0}
+.page[data-notext] .textLayer { cursor: default; }
+
+/* ---------- highlight layer (SPEC §5 "Drawing"): canvas → .hlLayer → .textLayer → .dimLayer ---------- */
+.hlLayer { position: absolute; inset: 0; z-index: 1; pointer-events: none; mix-blend-mode: multiply; }
+.hl { position: absolute; background: var(--hl); border-radius: 2px; }
+.hl--plain { background: var(--hl-soft); }
+.hl--flag { background: var(--hl-flag); }
+.hl--active { background: var(--hl-active); }
+.hl--find { background: var(--find); }
+.hl--find-current { box-shadow: 0 0 0 2px var(--focus); }
+.hl--pulse { animation: hlPulse .6s ease-in-out 2; }
+@keyframes hlPulse {
+  0%, 100% { background: var(--hl); box-shadow: none; }
+  50% { background: var(--hl-active); box-shadow: 0 0 0 4px var(--hl-active); }
+}
+/* a free note draws no highlight: a small triangle at the page's right edge */
+.hl-note {
+  position: absolute; right: 0; width: 0; height: 0; margin-top: -6px;
+  border-style: solid; border-width: 6px 8px 6px 0; border-color: transparent var(--hl-active) transparent transparent;
+}
+.dimLayer { position: absolute; inset: 0; z-index: 3; pointer-events: none; background: var(--dim); display: none; }
+.reader--dim .dimLayer { display: block; }
+@media (prefers-reduced-motion: reduce) {
+  .hl--pulse { animation: none; background: var(--hl-active); }
+  .reader__prep-bar::after { animation: none; left: 0; width: 100%; }
+}
+
+/* ---------- the adder: N Prompt · C Cloze · H Highlight · O Note → Obsidian (SPEC §3, BUILD-NOTES "Obsidian") ---------- */
+#adder {
+  position: fixed; z-index: 50; display: flex; align-items: center; gap: 2px; padding: 3px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 999px; box-shadow: var(--page-shadow);
+  max-width: calc(100vw - 32px); box-sizing: border-box;
+}
+#adder.is-hidden { display: none; }
+.adder__btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 var(--s3) 0 var(--s2);
+  border: 0; border-radius: 999px; background: transparent; color: var(--ink);
+  font: 500 13px/18px var(--font-ui); cursor: pointer; white-space: nowrap;
+}
+.adder__btn:hover, .adder__btn:focus-visible { background: var(--surface-2); outline: none; }
+.adder__key {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 4px;
+  box-sizing: border-box; border: 1px solid var(--line); border-radius: var(--r1); background: var(--surface-2);
+  color: var(--ink-2); font: 500 11px/16px var(--font-mono);
+}
+/* O "Note → Obsidian" (BUILD-NOTES "Obsidian"): in a stack window it reads "Obsidian" and the buttons tighten, so the
+   four fit a 375-px phone on one row; narrower than that the adder wraps to a second row instead of clipping */
+.reader--stack .adder__label-pre { display: none; }
+.reader--stack #adder { flex-wrap: wrap; justify-content: center; border-radius: var(--r3); }
+.reader--stack .adder__btn { gap: 4px; padding: 0 var(--s2) 0 var(--s1); }
+
+/* ---------- find bar: Cmd+F, Enter / Shift+Enter cycle, Esc closes ---------- */
+#find {
+  position: fixed; right: var(--s4); z-index: 50; display: flex; align-items: center; gap: var(--s1);
+  padding: var(--s1) var(--s2); box-sizing: border-box; max-width: calc(100vw - 32px);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r2); box-shadow: var(--page-shadow);
+}
+#find.is-hidden { display: none; }
+.find__input {
+  width: 220px; max-width: 50vw; height: 28px; padding: 0 var(--s2); box-sizing: border-box;
+  border: 1px solid var(--line); border-radius: var(--r1); background: var(--bg); color: var(--ink);
+  font: 13px/20px var(--font-ui);
+}
+.find__input:focus { outline: 2px solid var(--focus); outline-offset: 0; }
+.find__count { min-width: 56px; color: var(--ink-2); font: 12px/16px var(--font-mono); text-align: center; }
+
+/* ---------- "Preparing document…" bar and engine messages (SPEC §3, §11) ---------- */
+.reader__prep {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 55;
+  display: flex; align-items: center; gap: var(--s3); padding: var(--s2) var(--s4); box-sizing: border-box;
+  max-width: calc(100vw - 32px); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r2);
+  box-shadow: var(--page-shadow); color: var(--ink); font: 500 13px/20px var(--font-ui);
+}
+.reader__prep.is-hidden { display: none; }
+.reader__prep-bar { position: relative; flex: 0 0 96px; height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
+.reader__prep-bar::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: -40%; width: 40%; border-radius: 2px;
+  background: var(--accent); animation: prepSlide 1.2s ease-in-out infinite;
+}
+@keyframes prepSlide { from { left: -40%; } to { left: 100%; } }
+.reader__prep--error { color: var(--danger); }
+.reader__prep--error .reader__prep-bar { display: none; }
+.reader__prep-back.is-hidden { display: none; }
+
+/* ---------- the "No text layer" chip for scanned PDFs (SPEC §11) ---------- */
+.reader__chip {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 50;
+  display: inline-flex; align-items: center; gap: var(--s2); padding: 6px var(--s3); box-sizing: border-box;
+  max-width: calc(100vw - 32px); background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px;
+  color: var(--ink-2); font: 12px/16px var(--font-ui);
+}
+.reader__chip.is-hidden { display: none; }
+.reader__chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reader__chip-close { border: 0; background: transparent; color: var(--ink-3); font: 12px/16px var(--font-ui); cursor: pointer; padding: 0 2px; }
+.reader__chip-close:hover { color: var(--ink); }
+
+/* ---------- Shift+C: the one-line chapter field at the top of the current page (SPEC §14) ---------- */
+.chapterMark {
+  position: fixed; z-index: 55; display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s2) var(--s3); box-sizing: border-box; max-width: calc(100vw - 32px);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r2); box-shadow: var(--page-shadow);
+}
+.chapterMark.is-hidden { display: none; }
+.chapterMark__label {
+  color: var(--ink-2); font: 500 12px/16px var(--font-display); text-transform: uppercase; letter-spacing: .08em; white-space: nowrap;
+}
+.chapterMark__input {
+  width: 260px; max-width: 50vw; height: 28px; padding: 0 var(--s2); box-sizing: border-box;
+  border: 1px solid var(--line); border-radius: var(--r1); background: var(--bg); color: var(--ink); font: 13px/20px var(--font-ui);
+}
+.chapterMark__input:focus { outline: 2px solid var(--focus); outline-offset: 0; }
+.chapterMark__hint { color: var(--ink-3); font: 12px/16px var(--font-ui); white-space: nowrap; }
+
+/* ---------- toolbar fit levels (reader.js fitToolbar; wide, compact and rail) ---------- */
+/* reader.js adds .tb--fit-1, then -2, then -3 to #toolbar while its content is wider than the bar. The zoom group
+ * (− readout + ⊡) never goes: a manual zoom always has a visible way back to fit width. While measuring
+ * (.tb--measure) no item may shrink (the title keeps up to 160 px, and Image|LaTeX, which clips its overflow,
+ * would otherwise be squeezed instead of overflowing); only the snip hint and the spacer give way. */
+#toolbar.tb--measure > * { flex-shrink: 0; }
+#toolbar.tb--measure > .tb-hint, #toolbar.tb--measure > .tb-spacer { flex-shrink: 1; }
+#toolbar.tb--measure > .tb-name { max-width: 160px; }
+#toolbar.tb--fit-1 .tb-seg { display: none; }                          /* 1: Image|LaTeX (in ⋯ too) */
+#toolbar.tb--fit-1 .tb-more { display: inline-flex; }
+#toolbar.tb--fit-2 .tb-back__label, #toolbar.tb--fit-2 .tb-snip__label,
+#toolbar.tb--fit-2 .tb-name__pen { display: none; }                    /* 2: text labels */
+#toolbar.tb--fit-3 .tb-review, #toolbar.tb--fit-3 .tb-help { display: none; }   /* 3: Review ▾ and ? (in ⋯ too) */
+
+/* ---------- breakpoints, set on #reader by reader.js from a ResizeObserver (SPEC §2 + BUILD-NOTES) ---------- */
+/* wide ≥ 680 (.reader--compact below 1000: styles.css narrows the margin to 224 and the cards to 192) */
+/* rail (600–679): a 44-px rail; the zoom group stays, ⋯ is shown */
+.reader--rail #margin { flex: 0 0 44px; width: 44px; }
+.reader--rail .tb-more, .reader--stack .tb-more { display: inline-flex; }
+/* stack (< 600, so 400): no margin, nothing scrolls horizontally, toolbar collapses to [‹] [title] [36/322] [✂] [⋯] */
+.reader--stack #margin { display: none; }
+.reader--stack #scroller { overflow-x: hidden; }
+.reader--stack #scroller > .gutter { flex-basis: 16px; min-width: 16px; }
+.reader--stack .tb-back__label, .reader--stack .tb-zoom-group, .reader--stack .tb-seg, .reader--stack .tb-review,
+.reader--stack .tb-help, .reader--stack .tb-snip__label, .reader--stack .tb-hint, .reader--stack .tb-name__pen { display: none; }
+.reader--stack #toolbar { gap: var(--s1); padding: 0 var(--s2); }
+.reader--stack .tb-name { max-width: 32vw; }
+.reader--stack .tb-page { width: 40px; }
+.reader--stack .tb-resume { padding: 0 var(--s2); }
+.reader--stack .tb-pagebox { font-size: 12px; }
+
+/* SELF-CHECK — css/reader.css owns (BUILD-NOTES "CSS ownership"): #toolbar + .tb-* (buttons, segmented control, page box,
+ * zoom readout, fit control .is-manual, resume pill, ⋯/Review menus, fit levels .tb--fit-1/2/3 and .tb--measure), #scroller
+ * flex row + .gutter + #pages, .page, the PDF.js .textLayer rules (verbatim), .hlLayer / .hl / .hl--plain / .hl--flag /
+ * .hl--active / .hl--find / .hl--pulse / .hl-note, .dimLayer (+ .reader--dim), #adder, #find, .reader__prep, .reader__chip,
+ * .chapterMark, and the .reader--rail / .reader--stack structural differences (margin 44 px / none, toolbar collapse; the
+ * zoom group shows in wide, compact and rail). Tokens of SPEC §13 only. Not here: #reader's own height (styles.css owns the
+ * container: 100vh, then 100dvh under @supports; test/reader-css.test.js), #margin's sticky place (styles.css). */

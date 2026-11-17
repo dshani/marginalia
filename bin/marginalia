@@ -1,0 +1,373 @@
+#!/usr/bin/env bash
+# marginalia: run the local Marginalia app and open it in Chrome; once the Marginalia Mac app is installed, open,
+# quit and show that app instead. `marginalia help` lists the commands.
+set -euo pipefail
+
+# Resolve this file through symlinks (the command is linked from ~/.local/bin).
+src="${BASH_SOURCE[0]}"
+while [ -h "$src" ]; do
+  dir="$(cd -P "$(dirname "$src")" && pwd)"
+  src="$(readlink "$src")"
+  case "$src" in /*) ;; *) src="$dir/$src" ;; esac
+done
+ROOT="$(cd -P "$(dirname "$src")/.." && pwd)"
+APP="$ROOT/marginalia"
+DESKTOP="$ROOT/desktop"
+
+# One fixed address: the browser keeps a separate library for every address.
+HOST="127.0.0.1"
+PORT="${MARGINALIA_PORT:-8765}"
+URL="http://$HOST:$PORT/"
+LOG_DIR="${TMPDIR:-/tmp}"
+LOG_DIR="${LOG_DIR%/}"
+LOG="$LOG_DIR/marginalia-$PORT.log"
+
+# The Marginalia Mac app (desktop/, FEATURES E2.4). MARGINALIA_APP names the installed copy (tests point it into a
+# scratch folder); only a value that is not set means /Applications/Marginalia.app (check_app_setting).
+INSTALLED="${MARGINALIA_APP-/Applications/Marginalia.app}"
+while [ "${INSTALLED%/}" != "$INSTALLED" ]; do INSTALLED="${INSTALLED%/}"; done
+BUNDLE_ID="local.marginalia.desktop"
+BUILT="$DESKTOP/out/Marginalia-darwin-arm64/Marginalia.app"
+PREVIOUS="$DESKTOP/out/previous/Marginalia.app"
+STAGED="$INSTALLED.new"      # the new app while marginalia app copies it: next to the installed one, not an app yet
+SET_ASIDE="$PREVIOUS.old"    # the older previous copy while marginalia app puts the new one in place
+# The app always runs its server on port 8765 (desktop/main.js: only its own --port flag changes that, and open -a
+# passes none); MARGINALIA_PORT moves only this command's own server. MARGINALIA_APP_PORT is for the command's tests,
+# which never look at port 8765.
+APP_PORT="${MARGINALIA_APP_PORT:-8765}"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+QUIT_WAIT=10   # seconds `marginalia stop` waits for the app to quit
+
+usage() {
+  cat <<HELP
+marginalia: run Marginalia on this Mac and open it in Chrome
+
+  marginalia            start the app if needed, then open it in Chrome
+  marginalia stop       stop the app
+  marginalia restart    restart the app, then open it in Chrome
+  marginalia status     show whether the app is running
+  marginalia test       run the unit tests and code checks
+  marginalia build      rebuild the single-file and artifact bundles
+  marginalia app        build the Mac app, test it, then install it as $INSTALLED
+  marginalia help       show this list
+
+The app runs at $URL from $APP.
+Without Google Chrome the page opens in Brave, then in your default browser.
+Set MARGINALIA_BROWSER (for example "Safari") to choose another browser.
+
+Once the Mac app is installed ($INSTALLED; MARGINALIA_APP names another place),
+marginalia and start open it (after stopping this command's own server, so the app gets port $APP_PORT),
+stop quits it, restart quits and opens it, and status shows it and port $APP_PORT.
+HELP
+}
+
+# The pid listening on port $1 (default: this command's port), or nothing.
+listener_pid() { lsof -nP -iTCP:"${1:-$PORT}" -sTCP:LISTEN -t 2>/dev/null | head -n 1 || true; }
+# True when the pid $1 is the server this command started on port $2 (default: this command's port).
+is_ours() { [ -n "$1" ] && ps -ww -p "$1" -o command= 2>/dev/null | grep -Fq -- "serve.py --port ${2:-$PORT} --dir $APP"; }
+
+open_page() {
+  local app
+  if [ -n "${MARGINALIA_BROWSER:-}" ]; then
+    if open -a "$MARGINALIA_BROWSER" "$1" 2>/dev/null; then return 0; fi
+    echo "Could not open $MARGINALIA_BROWSER, so trying Chrome." >&2
+  fi
+  for app in "Google Chrome" "Brave Browser"; do
+    if open -a "$app" "$1" 2>/dev/null; then
+      if [ "$app" != "Google Chrome" ]; then echo "Google Chrome is not installed, so the page opened in $app."; fi
+      return 0
+    fi
+  done
+  echo "Google Chrome is not installed, so the page opened in your default browser."
+  open "$1"
+}
+
+cmd_start() {
+  local pid i
+  pid="$(listener_pid)"
+  if [ -n "$pid" ]; then
+    if is_ours "$pid"; then echo "Marginalia is running at $URL"; return 0; fi
+    echo "Port $PORT is used by another program (pid $pid):" >&2
+    ps -ww -p "$pid" -o command= >&2 || true
+    echo "Stop that program, or use another port: MARGINALIA_PORT=$((PORT + 1)) marginalia" >&2
+    echo "Another port is another address, so the browser shows a separate, empty library there." >&2
+    return 1
+  fi
+  if [ ! -f "$APP/index.html" ]; then echo "The app is missing: $APP/index.html" >&2; return 1; fi
+  nohup python3 -I "$APP/tools/serve.py" --port "$PORT" --dir "$APP" >"$LOG" 2>&1 </dev/null &
+  for i in $(seq 1 50); do
+    if curl -s -m 1 -o /dev/null "$URL"; then echo "Marginalia started at $URL"; return 0; fi
+    sleep 0.1
+  done
+  echo "Marginalia did not start. The log says:" >&2
+  tail -n 20 "$LOG" >&2 || true
+  return 1
+}
+
+cmd_stop() {
+  local pid i
+  pid="$(listener_pid)"
+  if [ -z "$pid" ]; then echo "Marginalia is not running."; return 0; fi
+  if ! is_ours "$pid"; then echo "Port $PORT belongs to another program (pid $pid), so it was left running." >&2; return 1; fi
+  kill "$pid"
+  for i in $(seq 1 30); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+  echo "Marginalia stopped."
+}
+
+cmd_status() {
+  local pid
+  pid="$(listener_pid)"
+  if [ -n "$pid" ] && is_ours "$pid"; then echo "Marginalia is running at $URL (pid $pid). Log: $LOG"
+  elif [ -n "$pid" ]; then echo "Marginalia is not running. Port $PORT is used by another program (pid $pid)."
+  else echo "Marginalia is not running. Start it with: marginalia"; fi
+}
+
+need() { command -v "$1" >/dev/null 2>&1 || { echo "This needs $1, which is not on your PATH." >&2; exit 1; }; }
+
+# ---- the Mac app (FEATURES E2.4) -------------------------------------------------------------------------------------
+
+# MARGINALIA_APP set but blank, relative or not a .app stops the command: it never falls back to /Applications.
+check_app_setting() {
+  if [ "${MARGINALIA_APP+set}" = set ] && [ -z "${MARGINALIA_APP//[[:space:]]/}" ]; then
+    echo "MARGINALIA_APP is set but empty; unset it, or set it to the whole path of Marginalia.app." >&2
+    exit 1
+  fi
+  case "$INSTALLED" in
+    /*.app) ;;
+    *) echo "MARGINALIA_APP must be the whole path of an app, such as /Applications/Marginalia.app (it is: $INSTALLED)." >&2
+       exit 1 ;;
+  esac
+}
+
+plist_value() { plutil -extract "$2" raw -o - "$1/Contents/Info.plist" 2>/dev/null || true; }
+
+# True when the installed copy is the Marginalia app (its bundle id), so the commands work on the app.
+app_installed() {
+  check_app_setting
+  [ -f "$INSTALLED/Contents/Info.plist" ] && [ "$(plist_value "$INSTALLED" CFBundleIdentifier)" = "$BUNDLE_ID" ]
+}
+
+ere_escape() { printf '%s' "$1" | sed -e 's/[][\\.*^$()+?{}|]/\\&/g'; }
+
+# The pid of the installed app's main process (its command line is its executable), or nothing.
+app_pid() {
+  pgrep -f -- "^$(ere_escape "$INSTALLED")/Contents/MacOS/Marginalia( |\$)" 2>/dev/null | head -n 1 || true
+}
+
+# True when the pid $1 is the installed app's own server (its copy of serve.py on the app's port).
+is_apps_server() {
+  [ -n "$1" ] && ps -ww -p "$1" -o command= 2>/dev/null | grep -Fq -- "$INSTALLED/Contents/Resources/web/tools/serve.py --port $APP_PORT"
+}
+
+# Stop the servers this command started, if they run: the one on the app's port (the app needs it) and, when
+# MARGINALIA_PORT names another port, the one there (the app replaces it). Nothing else is ever stopped.
+stop_own_server() {
+  stop_own_server_on "$APP_PORT" "the app uses that port"
+  if [ "$PORT" != "$APP_PORT" ]; then stop_own_server_on "$PORT" "the app replaces it"; fi
+}
+
+stop_own_server_on() {   # $1: the port; $2: why it stops
+  local pid i
+  pid="$(listener_pid "$1")"
+  if [ -n "$pid" ] && is_ours "$pid" "$1"; then
+    kill "$pid" 2>/dev/null || true
+    for i in $(seq 1 30); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+    echo "Stopped the server that the marginalia command started at http://$HOST:$1/ ($2)."
+  fi
+}
+
+app_open() {
+  stop_own_server
+  if open -a "$INSTALLED"; then echo "Opened the Marginalia app."; return 0; fi
+  echo "Could not open $INSTALLED." >&2
+  return 1
+}
+
+# Quit the app (AppleScript quit by bundle id; SIGTERM, which quits it the same way, when Apple events are refused),
+# wait up to QUIT_WAIT seconds, then stop this command's own server too.
+app_stop() {
+  local pid i status=0
+  pid="$(app_pid)"
+  if [ -z "$pid" ]; then
+    echo "The Marginalia app is not running."
+  else
+    if ! osascript -e "if application id \"$BUNDLE_ID\" is running then tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1; then
+      kill -TERM "$pid" 2>/dev/null || true
+    fi
+    for i in $(seq 1 $((QUIT_WAIT * 10))); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "The Marginalia app (pid $pid) did not quit within $QUIT_WAIT seconds. Quit it with Cmd+Q, then try again." >&2
+      status=1
+    else
+      echo "The Marginalia app has quit."
+    fi
+  fi
+  stop_own_server
+  return "$status"
+}
+
+app_status() {
+  local pid version listener
+  version="$(plist_value "$INSTALLED" CFBundleShortVersionString)"
+  pid="$(app_pid)"
+  if [ -n "$pid" ]; then echo "The Marginalia app ${version:+$version }is installed at $INSTALLED and running (pid $pid)."
+  else echo "The Marginalia app ${version:+$version }is installed at $INSTALLED and not running. Open it with: marginalia"; fi
+  listener="$(listener_pid "$APP_PORT")"
+  if [ -z "$listener" ]; then echo "Port $APP_PORT is free."
+  elif is_apps_server "$listener"; then echo "Port $APP_PORT is used by the app's server (pid $listener)."
+  elif is_ours "$listener" "$APP_PORT"; then echo "Port $APP_PORT is used by the server that the marginalia command started (pid $listener; log: $LOG_DIR/marginalia-$APP_PORT.log). marginalia stops it before it opens the app."
+  else echo "Port $APP_PORT is used by another program (pid $listener), so the app cannot start its server there."; fi
+  if [ "$PORT" != "$APP_PORT" ]; then
+    listener="$(listener_pid "$PORT")"
+    if is_ours "$listener" "$PORT"; then echo "Port $PORT (MARGINALIA_PORT) is used by the server that the marginalia command started (pid $listener; log: $LOG). marginalia stops it before it opens the app."; fi
+  fi
+}
+
+ls_register() {
+  local bin
+  bin="$(type -P lsregister || true)"
+  "${bin:-$LSREGISTER}" "$@" >/dev/null 2>&1 || { echo "Note: lsregister $1 $2 failed." >&2; return 1; }
+}
+
+# What marginalia app's install did so far (undo_install puts it back): the new app copied next to the installed one
+# (staged), the older previous copy set aside (aside), the installed copy moved to desktop/out/previous (moved); and
+# the signal that came meanwhile (interrupted). Globals, so the signal traps can set them.
+staged="" aside="" moved="" interrupted=""
+
+say() { echo "$*" >&2 || true; }   # never stops an undo, even when the Terminal window is gone
+
+# What a killed install (kill -9, a power cut) left: the half copy next to the app goes; an older previous copy set
+# aside goes back to desktop/out/previous when that is empty (killed before the installed copy moved there), and goes
+# when it is not (killed after that: it was due to go).
+clear_leftovers() {
+  rm -rf "$STAGED" || return 1
+  if [ -e "$SET_ASIDE" ] || [ -L "$SET_ASIDE" ]; then
+    if [ -e "$PREVIOUS" ] || [ -L "$PREVIOUS" ]; then rm -rf "$SET_ASIDE" || return 1
+    else mv "$SET_ASIDE" "$PREVIOUS" || return 1; fi
+  fi
+}
+
+# Put back what the install did so far, the last step first: the installed copy back from desktop/out/previous, the
+# older previous copy back into desktop/out/previous, the new copy removed. False when the installed copy could not
+# be put back (it is then in desktop/out/previous).
+undo_install() {
+  local back=0
+  if [ -n "$moved" ]; then
+    if [ ! -e "$INSTALLED" ] && [ ! -L "$INSTALLED" ] && mv "$PREVIOUS" "$INSTALLED"; then moved=""; else back=1; fi
+  fi
+  if [ -n "$aside" ] && [ -z "$moved" ] && [ ! -e "$PREVIOUS" ] && [ ! -L "$PREVIOUS" ] && mv "$SET_ASIDE" "$PREVIOUS"; then
+    aside=""
+  fi
+  if [ -n "$staged" ]; then rm -rf "$STAGED" 2>/dev/null || true; staged=""; fi
+  return "$back"
+}
+
+# A failure, or a signal, before the new app is in place: undo the install, say so ("$1, $2." for a failure), and end
+# the command by that signal if one came.
+give_up() {
+  local head="$1" tail="$2"
+  if [ -n "$interrupted" ]; then head="Stopped before the new app was in place"; tail="so the installed app was left as it was"; fi
+  if undo_install; then say "$head, $tail."
+  elif [ -n "$interrupted" ]; then say "$head, and the old one could not be put back: it is in $PREVIOUS."
+  else say "$head, nor put the old one back: it is in $PREVIOUS."; fi
+  if [ -n "$aside" ]; then say "The version before that is in $SET_ASIDE."; fi
+  end_install
+}
+
+# The install is over: signals act as usual again, and one that came during it ends the command now.
+end_install() {
+  trap - INT HUP TERM
+  if [ -n "$interrupted" ]; then kill -s "$interrupted" "$$"; fi
+}
+
+# marginalia app: build and test the app (npm run app in desktop/), then install it; the installed copy changes only
+# when the build and its self-test passed, and a failed step, Ctrl+C (INT), a closed Terminal window (HUP) or TERM
+# during the install put everything back.
+cmd_app() {
+  local version
+  check_app_setting
+  if { [ -e "$INSTALLED" ] || [ -L "$INSTALLED" ]; } && ! app_installed; then
+    echo "$INSTALLED is not the Marginalia app, so it was left as it is. Set MARGINALIA_APP to install somewhere else." >&2
+    return 1
+  fi
+  if [ -n "$(app_pid)" ]; then echo "Quit Marginalia first (Cmd+Q), then run marginalia app again." >&2; return 1; fi
+  if [ ! -f "$DESKTOP/package.json" ]; then echo "The Mac app's folder is missing: $DESKTOP" >&2; return 1; fi
+  need npm
+  if [ ! -d "$DESKTOP/node_modules" ]; then
+    echo "The Mac app's build tools are not installed yet. Install them once with: cd \"$DESKTOP\" && npm ci" >&2
+    return 1
+  fi
+  echo "Building and testing the Marginalia app (npm run app in $DESKTOP)."
+  if ! (cd "$DESKTOP" && npm run app); then
+    echo "The build or its self-test failed, so the installed app was left as it is." >&2
+    return 1
+  fi
+  if [ "$(plist_value "$BUILT" CFBundleIdentifier)" != "$BUNDLE_ID" ]; then
+    echo "The build made no Marginalia app at $BUILT, so the installed app was left as it is." >&2
+    return 1
+  fi
+  if [ -n "$(app_pid)" ]; then echo "Quit Marginalia first (Cmd+Q), then run marginalia app again." >&2; return 1; fi
+  if ! mkdir -p "$(dirname "$INSTALLED")"; then
+    echo "Could not make the folder $(dirname "$INSTALLED"), so nothing was installed." >&2
+    return 1
+  fi
+  # From here on a signal is only noted, and acted on between the steps (give_up), so the install is never left
+  # half done. bash runs a trap after the command that is running (ditto, mv) has ended.
+  trap 'interrupted=INT' INT
+  trap 'interrupted=HUP' HUP
+  trap 'interrupted=TERM' TERM
+  # 1. The new app is copied next to the installed one (<app>.new): the installed copy is not touched yet.
+  staged=1
+  if ! { clear_leftovers && ditto "$BUILT" "$STAGED"; } || [ -n "$interrupted" ]; then
+    give_up "Could not copy the new app to $INSTALLED" "so the installed app was left as it was"
+    return 1
+  fi
+  # 2. The installed copy, if any, goes to desktop/out/previous; the older copy there waits beside it until the end.
+  if [ -e "$INSTALLED" ] || [ -L "$INSTALLED" ]; then
+    if ! mkdir -p "$(dirname "$PREVIOUS")" || [ -n "$interrupted" ]; then
+      give_up "Could not move the installed app to $PREVIOUS" "so it was left as it is"
+      return 1
+    fi
+    if [ -e "$PREVIOUS" ] || [ -L "$PREVIOUS" ]; then
+      if ! mv "$PREVIOUS" "$SET_ASIDE"; then
+        give_up "Could not move the installed app to $PREVIOUS" "so it was left as it is"
+        return 1
+      fi
+      aside=1
+    fi
+    if [ -n "$interrupted" ] || ! mv "$INSTALLED" "$PREVIOUS"; then
+      if [ ! -e "$INSTALLED" ] && [ ! -L "$INSTALLED" ]; then moved=1; fi   # it did move (to another disk)
+      give_up "Could not move the installed app to $PREVIOUS" "so it was left as it is"
+      return 1
+    fi
+    moved=1
+  fi
+  # 3. The new app goes into place: one rename in the same folder.
+  if [ -n "$interrupted" ] || [ -e "$INSTALLED" ] || [ -L "$INSTALLED" ] || ! mv "$STAGED" "$INSTALLED"; then
+    give_up "Could not copy the new app to $INSTALLED" "so the installed app was left as it was"
+    return 1
+  fi
+  # Installed: nothing is undone from here on (a signal that comes now ends the command after the last steps).
+  staged=""
+  if [ -n "$aside" ]; then rm -rf "$SET_ASIDE" 2>/dev/null || true; aside=""; fi
+  ls_register -f "$INSTALLED" || true
+  ls_register -u "$BUILT" || true
+  if [ -n "$moved" ]; then ls_register -u "$PREVIOUS" || true; fi
+  moved=""
+  version="$(plist_value "$INSTALLED" CFBundleShortVersionString)"
+  echo "Installed Marginalia ${version:-(no version)}. Open it with: marginalia" || true
+  end_install
+}
+
+case "${1:-open}" in
+  open)           if app_installed; then app_open; else cmd_start && open_page "$URL"; fi ;;
+  start)          if app_installed; then app_open; else cmd_start; fi ;;
+  stop)           if app_installed; then app_stop; else cmd_stop; fi ;;
+  restart)        if app_installed; then app_stop && app_open; else cmd_stop && cmd_start && open_page "$URL"; fi ;;
+  status)         if app_installed; then app_status; else cmd_status; fi ;;
+  test)           need node; cd "$APP" && node --test && python3 -I tools/xref.py && node tools/xref-rt.js && node tools/smoke.js && python3 -I -m unittest discover -s test -p 'test_*.py' && { [ ! -f "$DESKTOP/package.json" ] || { cd "$DESKTOP" && node --test; }; } ;;
+  build)          cd "$APP" && python3 -I tools/bundle.py && python3 -I tools/bundle.py --artifact ;;
+  app)            cmd_app ;;
+  help|-h|--help) usage ;;
+  *)              echo "Unknown command: $1" >&2; usage >&2; exit 1 ;;
+esac
