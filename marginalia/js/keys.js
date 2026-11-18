@@ -355,6 +355,10 @@
     lastTab: "Mod+9"
   }, true));
 
+  // Undo and redo for cards (D33, BUILD-NOTES "Undo and redo"): never inside a text field (inField false), where
+  // these keys stay the undo and redo of the text itself.
+  var UNDO_MAP = deepFreeze(mapOf({ undo: "Mod+z", redo: "Mod+Shift+z" }, false));
+
   function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
   function plainBinding(b) { return b && typeof b === "object" && !Array.isArray(b) ? b.binding : b; }
 
@@ -421,6 +425,7 @@
     READER_MAP: READER_MAP,
     EDITOR_MAP: EDITOR_MAP,
     TABS_MAP: TABS_MAP,
+    UNDO_MAP: UNDO_MAP,
     REVIEW_ACTIONS: REVIEW_ACTIONS,
     LATE_REVIEW_ACTIONS: LATE_REVIEW_ACTIONS,
     // extensions (documented in the engineer's report)
@@ -444,4 +449,5 @@
    every preset binds flag "f" and delete "Backspace"; reviewMap leaves a missing late action unbound when another
    action of the map already uses its Default key; presetOf ignores a missing late action.
    BUILD-NOTES "Tabs" (D30): TABS_MAP (inField: true): newTab "Mod+t", closeTab "Mod+w", reopenTab "Mod+Shift+t",
-   nextTab ["Ctrl+Tab", "Mod+}"], prevTab ["Ctrl+Shift+Tab", "Mod+{"], tab1 … tab8 "Mod+1" … "Mod+8", lastTab "Mod+9". */
+   nextTab ["Ctrl+Tab", "Mod+}"], prevTab ["Ctrl+Shift+Tab", "Mod+{"], tab1 … tab8 "Mod+1" … "Mod+8", lastTab "Mod+9".
+   BUILD-NOTES "Undo and redo" (D33): UNDO_MAP (inField: false): undo "Mod+z", redo "Mod+Shift+z". */

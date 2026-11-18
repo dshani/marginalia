@@ -791,3 +791,310 @@ test("a cloze card shows a blank's cue beside its mark, with the answers hidden 
   assert.equal(qa.querySelector(".card__body").innerHTML, '<div class="card__q">What does {a::b} mean?</div><div class="card__a">c\\::d</div>');
   assert.equal(qa.querySelectorAll(".cloze-cue").length, 0);
 });
+
+// ---- DECISIONS D33: what a person does to a card in the margin is a step of M.undo --------------------------------
+test("D33: an editor's save, a flag and a delete are steps; the margin follows undo and redo; Z after a delete is its undo", async () => {
+  require(path.join(__dirname, "..", "js", "undo.js"));
+  const U = M.undo, hadEditor = Object.prototype.hasOwnProperty.call(M, "editor"), oldEditor = M.editor, made = [];
+  M.editor = { create: (o) => { made.push(o); return { focus() {}, destroy() { o.host.innerHTML = ""; }, run() { return true; }, getText: () => "" }; } };
+  const cardOf = (id) => doc.querySelector('.card[data-id="' + id + '"]');
+  const live = (id) => { const p = M.cache.prompt(id); return !!p && p.deletedAt === null; };
+  const cmdZ = (target, shift) => {
+    const ev = makeEvent("keydown", target, shift ? "Z" : "z");
+    ev.metaKey = true; ev.shiftKey = !!shift;
+    return { ev, handled: M.app.handleKeydown(ev) };
+  };
+  M.keys.setPlatform("mac");
+  U.clear();
+  try {
+    // a new prompt from the editor
+    const A = Object.assign({}, ANCHOR, { y: 420, quote: "the D33 passage", pages: [{ pageIndex: 0, rects: [[10, 410, 200, 430]] }] });
+    assert.ok(M.margin.openEditor({ promptId: null, anchor: A, initialText: "Q. " }));
+    await made[made.length - 1].onSave("Q. first wording\nA. yes", { another: false });
+    await tick();
+    const rec = M.cache.promptsOf("book_1").find((p) => p.text === "Q. first wording\nA. yes");
+    assert.ok(rec && cardOf(rec.id), "the new card is in the margin");
+    assert.deepEqual(U.size(), { undo: 1, redo: 0 });
+    assert.equal(U.peek("undo").label, "New prompt");
+
+    assert.equal((await U.undo()).ok, true);
+    await tick();
+    assert.equal(live(rec.id), false);
+    assert.equal(cardOf(rec.id), null, "its card left the margin");
+    assert.equal((await U.redo()).ok, true);
+    await tick();
+    assert.ok(cardOf(rec.id), "and came back");
+
+    // an edit in the editor
+    assert.ok(M.margin.openEditor({ promptId: rec.id }));
+    assert.equal(M.app.focusOwner(), "editor");
+    assert.equal((await U.undo()).reason, "editor", "no card changes under an open editor");
+    assert.equal(live(rec.id), true);
+    await made[made.length - 1].onSave("Q. second wording\nA. yes", { another: false });
+    await tick();
+    assert.match(cardOf(rec.id).querySelector(".card__body").innerHTML, /second wording/);
+    assert.equal(U.peek("undo").label, "Edit");
+    assert.equal((await U.undo()).ok, true);
+    await tick();
+    assert.match(cardOf(rec.id).querySelector(".card__body").innerHTML, /first wording/, "the card shows the text from before the edit");
+    assert.equal(M.cache.prompt(rec.id).text, "Q. first wording\nA. yes");
+    assert.equal((await U.redo()).ok, true);
+    await tick();
+    assert.match(cardOf(rec.id).querySelector(".card__body").innerHTML, /second wording/);
+
+    // F
+    assert.equal(M.margin.focus(rec.id, { scroll: false }), true);
+    assert.equal(M.margin.run("flag"), true);
+    await tick();
+    assert.equal(M.cache.prompt(rec.id).flagged, true);
+    assert.equal(U.peek("undo").label, "Flag");
+    assert.equal(cmdZ(cardOf(rec.id)).handled, true, "Cmd+Z on the focused card");
+    await tick();
+    assert.equal(M.cache.prompt(rec.id).flagged, false);
+    assert.equal(cmdZ(cardOf(rec.id), true).handled, true, "Shift+Cmd+Z");
+    await tick();
+    assert.equal(M.cache.prompt(rec.id).flagged, true);
+
+    // Backspace, then Cmd+Z
+    const before = U.size().undo;
+    const shown = [], realToast = M.app.toast;             // the notices, each with what became of it
+    M.app.toast = (o) => { const h = { text: o.text, closed: false, close() { h.closed = true; } }; shown.push(h); return h; };
+    try {
+      assert.equal(M.margin.focus(rec.id, { scroll: false }), true);
+      assert.equal(M.margin.run("delete"), true);
+      await tick();
+      assert.equal(live(rec.id), false);
+      assert.equal(cardOf(rec.id), null);
+      assert.equal(U.size().undo, before + 1);
+      assert.equal(U.peek("undo").label, "Delete");
+      const offer = shown.find((h) => h.text === "Prompt deleted · Undo (Z)");
+      assert.ok(offer && !offer.closed, "the margin's own notice offers Z");
+      assert.equal(cmdZ(doc.getElementById("reader")).handled, true);
+      await tick();
+      assert.equal(live(rec.id), true);
+      assert.ok(cardOf(rec.id), "the deleted card is back in the margin");
+      assert.deepEqual(U.size(), { undo: before, redo: 1 });
+      assert.equal(offer.closed, true, "the prompt is back, so “Prompt deleted · Undo (Z)” is gone");
+      assert.ok(shown.some((h) => /^Delete undone · /.test(h.text) && !h.closed));
+      assert.equal(M.margin.run("undoDelete"), false, "and Z has nothing left to undo");
+    } finally { M.app.toast = realToast; }
+
+    // Backspace, then Z (the margin's own undo while its notice shows): the same step taken back
+    assert.equal(M.margin.focus(rec.id, { scroll: false }), true);
+    assert.equal(M.margin.run("delete"), true);
+    await tick();
+    assert.deepEqual(U.size(), { undo: before + 1, redo: 0 });
+    assert.equal(M.margin.run("undoDelete"), true);
+    await tick();
+    assert.equal(live(rec.id), true);
+    assert.ok(cardOf(rec.id));
+    assert.deepEqual(U.size(), { undo: before, redo: 1 }, "Z counts as the undo of the delete");
+    assert.equal(U.peek("redo").label, "Delete");
+
+    // in a text field the keys are the text's own
+    const ta = doc.createElement("textarea");
+    doc.getElementById("toolbar").appendChild(ta);
+    const inText = cmdZ(ta);
+    assert.equal(inText.handled, false);
+    assert.equal(inText.ev.defaultPrevented, false);
+    await tick();
+    assert.deepEqual(U.size(), { undo: before, redo: 1 });
+  } finally {
+    M.keys.setPlatform(null);
+    U.clear();
+    if (hadEditor) M.editor = oldEditor; else delete M.editor;
+  }
+});
+
+test("D33: Move to… and Anchor to selection are steps too (the margin saves a copy of the record)", async () => {
+  require(path.join(__dirname, "..", "js", "undo.js"));
+  const U = M.undo, hadReader = Object.prototype.hasOwnProperty.call(M, "reader"), oldReader = M.reader, realConfirm = M.app.confirm;
+  const asked = [];
+  M.app.confirm = (o) => { asked.push(o.title); return Promise.resolve(true); };
+  U.clear();
+  await M.cache.saveCollection({ id: "deck_d33", kind: "deck", name: "D33 deck" });
+  // a prompt whose passage was not found again: its card offers "Anchor to selection"
+  const lostAnchor = Object.assign({}, ANCHOR, { y: 150, quote: "old passage", pages: [{ pageIndex: 0, rects: [[10, 140, 200, 160]] }], lost: true });
+  await M.cache.savePrompt({ id: "p_d33", collectionId: "book_1", kind: "qa", text: "Q. where?\nA. here", anchor: lostAnchor, context: null, cards: [] }, { content: true });
+  await tick();
+  const card = () => doc.querySelector('.card[data-id="p_d33"]');
+  const pick = (label) => {
+    const item = card().querySelector(".menu").querySelectorAll(".menu__item").find((b) => b.textContent === label);
+    assert.ok(item, "the menu has “" + label + "”");
+    click(item);
+  };
+  try {
+    // ⋯ › Anchor to selection
+    const cached = M.cache.prompt("p_d33");
+    M.reader = { selection: { pageIndex: 0, y: 900, quote: "new passage", prefix: "", suffix: "", pages: [{ pageIndex: 0, rects: [[10, 890, 200, 910]] }] } };
+    click(card().querySelector(".card__menu"));
+    pick("Anchor to selection");
+    await tick();
+    assert.equal(M.cache.prompt("p_d33").anchor.quote, "new passage");
+    assert.equal(M.cache.prompt("p_d33").anchor.lost, false);
+    assert.equal(cached.anchor.quote, "old passage", "the record the cache held was not changed in place");
+    assert.deepEqual(U.size(), { undo: 1, redo: 0 });
+    assert.equal(U.peek("undo").label, "Anchor change");
+    assert.equal((await U.undo()).ok, true);
+    await tick();
+    assert.equal(M.cache.prompt("p_d33").anchor.quote, "old passage");
+    assert.equal(M.cache.prompt("p_d33").anchor.lost, true, "the passage is lost again, as before the step");
+    assert.equal((await U.redo()).ok, true);
+    await tick();
+    assert.equal(M.cache.prompt("p_d33").anchor.quote, "new passage");
+
+    // ⋯ › Move to… › the deck (the margin asks first)
+    click(card().querySelector(".card__menu"));
+    pick("Move to…");
+    pick("D33 deck");
+    await tick();
+    assert.deepEqual(asked, ["Move to “D33 deck”?"]);
+    assert.equal(M.cache.prompt("p_d33").collectionId, "deck_d33");
+    assert.equal(M.cache.prompt("p_d33").anchor, null);
+    assert.equal(card(), null, "the card left this book's margin");
+    assert.deepEqual(U.size(), { undo: 2, redo: 0 });
+    assert.equal(U.peek("undo").label, "Move");
+    assert.equal((await U.undo()).ok, true);
+    await tick();
+    assert.equal(M.cache.prompt("p_d33").collectionId, "book_1");
+    assert.equal(M.cache.prompt("p_d33").anchor.quote, "new passage");
+    assert.ok(card(), "and is back after the undo, at its passage");
+    assert.equal((await U.redo()).ok, true);
+    await tick();
+    assert.equal(card(), null);
+  } finally {
+    U.clear();
+    M.app.confirm = realConfirm;
+    if (hadReader) M.reader = oldReader; else delete M.reader;
+  }
+});
+
+test("D33: a card that the margin's editor holds is not changed under it, wherever the focus is; a focused card that an undo takes away hands the focus to the reader", async () => {
+  require(path.join(__dirname, "..", "js", "undo.js"));
+  const U = M.undo, hadEditor = Object.prototype.hasOwnProperty.call(M, "editor"), oldEditor = M.editor, made = [];
+  M.editor = { create: (o) => { made.push(o); return { focus() {}, destroy() { o.host.innerHTML = ""; }, run() { return true; }, getText: () => "" }; } };
+  const shown = [], realToast = M.app.toast;
+  M.app.toast = (o) => { const h = { text: o.text, closed: false, close() { h.closed = true; } }; shown.push(h); return h; };
+  const cardOf = (id) => doc.querySelector('.card[data-id="' + id + '"]');
+  const cmdZ = (target) => { const ev = makeEvent("keydown", target, "z"); ev.metaKey = true; return { ev, handled: M.app.handleKeydown(ev) }; };
+  M.keys.setPlatform("mac");
+  U.clear();
+  try {
+    await M.cache.savePrompt({ id: "p_held", collectionId: "book_1", kind: "qa", text: "Q. held, first\nA. yes", anchor: Object.assign({}, ANCHOR, { y: 520, quote: "held passage", pages: [{ pageIndex: 0, rects: [[10, 510, 200, 530]] }] }), context: null, cards: [] }, { content: true });
+    await M.cache.savePrompt({ id: "p_other", collectionId: "book_1", kind: "qa", text: "Q. other\nA. yes", anchor: Object.assign({}, ANCHOR, { y: 560, quote: "other passage", pages: [{ pageIndex: 0, rects: [[10, 550, 200, 570]] }] }), context: null, cards: [] }, { content: true });
+    await tick();
+    // an edit of p_held is the newest step
+    assert.ok(M.margin.openEditor({ promptId: "p_held" }));
+    await made[made.length - 1].onSave("Q. held, second\nA. yes", { another: false });
+    await tick();
+    assert.equal(U.peek("undo").label, "Edit");
+
+    // its editor opens again; then the person clicks another card: that card has the focus, the editor stays open
+    assert.ok(M.margin.openEditor({ promptId: "p_held" }));
+    assert.equal(M.margin.focus("p_other", { scroll: false }), true);
+    assert.equal(M.app.focusOwner(), "card");
+    assert.ok(M.margin.editing() && M.margin.editing().promptId === "p_held", "the editor of p_held is still open");
+    const r = cmdZ(cardOf("p_other"));
+    assert.equal(r.handled, true);
+    await U.idle();
+    await tick();
+    assert.equal(M.cache.prompt("p_held").text, "Q. held, second\nA. yes", "the card under the editor did not change");
+    assert.deepEqual(U.size(), { undo: 1, redo: 0 }, "its step waits");
+    assert.equal(shown[shown.length - 1].text, "Save or cancel the editor of that card first.");
+    await made[made.length - 1].onCancel();
+    await tick();
+    assert.equal(M.margin.editing(), null);
+    assert.equal((await U.undo()).ok, true, "with the editor closed the step is taken back");
+    assert.equal(M.cache.prompt("p_held").text, "Q. held, first\nA. yes");
+
+    // a new card has the focus; Cmd+Z takes it away: the focus goes to the reader, not to nothing
+    U.clear();
+    assert.ok(M.margin.openEditor({ promptId: null, anchor: Object.assign({}, ANCHOR, { y: 610, quote: "new passage", pages: [{ pageIndex: 0, rects: [[10, 600, 200, 620]] }] }), initialText: "Q. " }));
+    await made[made.length - 1].onSave("Q. new and focused\nA. yes", { another: false });
+    await tick();
+    const fresh = M.cache.promptsOf("book_1").find((x) => x.text === "Q. new and focused\nA. yes");
+    assert.equal(M.margin.focus(fresh.id, { scroll: false }), true);
+    assert.equal(doc.activeElement, cardOf(fresh.id));
+    assert.equal(cmdZ(cardOf(fresh.id)).handled, true);
+    await U.idle();
+    await tick();
+    assert.equal(cardOf(fresh.id), null);
+    assert.equal(doc.activeElement, doc.getElementById("reader"), "the reader has the focus");
+    assert.equal(M.app.focusOwner(), "reader");
+    assert.equal(M.margin.focusedId(), null);
+
+    // Backspace still hands the focus to the next card, as before, and never to the reader on its way
+    assert.equal(M.margin.focus("p_held", { scroll: false }), true);
+    const readerEl = doc.getElementById("reader"), realFocus = readerEl.focus;
+    let readerFocused = 0;
+    readerEl.focus = function () { readerFocused++; return realFocus.apply(this, arguments); };
+    try { assert.equal(M.margin.run("delete"), true); } finally { readerEl.focus = realFocus; }
+    await tick();
+    assert.ok(doc.activeElement && doc.activeElement.classList.contains("card"), "a neighbouring card has the focus");
+    assert.equal(M.app.focusOwner(), "card");
+    assert.equal(readerFocused, 0, "the margin's own delete moves the focus itself");
+    assert.equal((await U.undo()).ok, true);
+  } finally {
+    M.keys.setPlatform(null);
+    U.clear();
+    M.app.toast = realToast;
+    if (hadEditor) M.editor = oldEditor; else delete M.editor;
+  }
+});
+
+test("D33: the first half of a Split is held while the second half's editor is open; a focused card that a redo moves out hands the focus to the reader", async () => {
+  require(path.join(__dirname, "..", "js", "undo.js"));
+  const U = M.undo, hadEditor = Object.prototype.hasOwnProperty.call(M, "editor"), oldEditor = M.editor, made = [], realConfirm = M.app.confirm;
+  M.editor = { create: (o) => { made.push(o); return { focus() {}, destroy() { o.host.innerHTML = ""; }, run() { return true; }, getText: () => "" }; },
+    dropDraft() {}, draftText() { return null; } };
+  M.app.confirm = () => Promise.resolve(true);
+  const shown = [], realToast = M.app.toast;
+  M.app.toast = (o) => { const h = { text: o.text, closed: false, close() { h.closed = true; } }; shown.push(h); return h; };
+  const cardOf = (id) => doc.querySelector('.card[data-id="' + id + '"]');
+  const key = (target, shift) => { const ev = makeEvent("keydown", target, shift ? "Z" : "z"); ev.metaKey = true; ev.shiftKey = !!shift; return M.app.handleKeydown(ev); };
+  M.keys.setPlatform("mac");
+  U.clear();
+  try {
+    await M.cache.savePrompt({ id: "p_split", collectionId: "book_1", kind: "qa", text: "Q. one and two?\nA. 1 and 2", anchor: Object.assign({}, ANCHOR, { y: 660, quote: "split passage", pages: [{ pageIndex: 0, rects: [[10, 650, 200, 670]] }] }), context: null, cards: [] }, { content: true });
+    await tick();
+    assert.ok(M.margin.openEditor({ promptId: "p_split", split: true }));
+    await made[made.length - 1].onSave("Q. one?\nA. 1", { another: false });   // the first half: a step
+    await tick();
+    assert.equal(M.cache.prompt("p_split").text, "Q. one?\nA. 1");
+    const second = M.margin.editing();
+    assert.ok(second && second.promptId === null && second.draftKey === "split:p_split", "the second half's editor is open");
+    assert.equal(key(doc.getElementById("reader")), true);
+    await U.idle();
+    await tick();
+    assert.equal(M.cache.prompt("p_split").text, "Q. one?\nA. 1", "the first half keeps its edit while the second half is written");
+    assert.equal(shown[shown.length - 1].text, "Save or cancel the editor of that card first.");
+    await made[made.length - 1].onSave("Q. two?\nA. 2", { another: false });
+    await tick();
+    assert.equal(M.margin.editing(), null);
+    assert.deepEqual(U.size(), { undo: 2, redo: 0 }, "the two halves: two steps");
+
+    // Move to a deck, undo, focus the card that is back, redo: the card leaves again, and the reader has the focus
+    U.clear();
+    await M.cache.saveCollection({ id: "deck_d33b", kind: "deck", name: "D33 deck B" });
+    await M.cache.savePrompt(Object.assign({}, M.cache.prompt("p_split"), { collectionId: "deck_d33b", anchor: null,
+      context: { docName: "D33 deck B", sectionLabel: null, pageIndex: null, pageLabel: null } }), { content: true, step: true });
+    await tick();
+    assert.equal(cardOf("p_split"), null);
+    assert.equal((await U.undo()).ok, true);
+    await tick();
+    assert.equal(M.margin.focus("p_split", { scroll: false }), true);
+    assert.equal(doc.activeElement, cardOf("p_split"));
+    assert.equal(key(cardOf("p_split"), true), true);       // Shift+Cmd+Z
+    await U.idle();
+    await tick();
+    assert.equal(cardOf("p_split"), null, "moved out again");
+    assert.equal(doc.activeElement, doc.getElementById("reader"), "the reader has the focus, not nothing");
+    assert.equal(M.app.focusOwner(), "reader");
+  } finally {
+    M.keys.setPlatform(null);
+    U.clear();
+    M.app.toast = realToast;
+    M.app.confirm = realConfirm;
+    if (hadEditor) M.editor = oldEditor; else delete M.editor;
+  }
+});

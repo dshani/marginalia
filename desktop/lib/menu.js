@@ -25,6 +25,12 @@
 //
 // The windows (DECISIONS D31): Window › New Window (Cmd+N, a key the web app does not use), Move Tab to New Window and
 // Merge All Windows (no shortcut). main.js runs them; what they ask of a page is in windowScript below.
+//
+// Undo and Redo (DECISIONS D33) are the second exception: Cmd+Z and Shift+Cmd+Z are also the web app's keys for the
+// last change to a card (js/keys.js UNDO_MAP). The two items keep Electron's own roles, which act on the text field
+// that has the focus. The page takes the keys only outside a text field and stops their default there, so the menu's
+// Undo does not run then; inside a text field the page leaves them alone and the menu's Undo acts on the text. A
+// click on Edit › Undo changes no card. Nothing here runs the web app's undo.
 const ACCEL = Object.freeze({
   hide: "Command+H",
   hideOthers: "Command+Alt+H",

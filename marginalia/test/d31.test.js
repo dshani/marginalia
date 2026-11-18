@@ -2837,3 +2837,108 @@ describe("a tab that is dragged down: a window at the point where it is let go, 
     assert.deepEqual(a.logs, []);
   });
 });
+
+// ---- DECISIONS D33: undo and redo, each window with its own steps -------------------------------------------------
+describe("undo and redo among the windows (DECISIONS D33)", () => {
+  const sizeOf = (p) => JSON.parse(JSON.stringify(p.R.undo.size()));
+  const noticed = (p, text) => p.elements(p.doc.getElementById("toasts"), (n) => /toast__text/.test(n.className || "")).some((n) => n.textContent === text);
+  // a card as the views build it, in the realm of page p
+  function card(p, id, text) {
+    const parsed = p.R.prompts.parse(text), t = Date.now();
+    return { id, collectionId: "b1", kind: parsed.kind, text, tags: [], flagged: false, anchor: null,
+      context: { docName: "Griffiths", sectionLabel: null, pageIndex: null, pageLabel: null },
+      cards: p.R.prompts.reconcileCards(null, parsed, t).cards, createdAt: t, deletedAt: null, v: 1 };
+  }
+  const edit = (p, id, text) => p.R.cache.savePrompt(Object.assign({}, p.R.cache.prompt(id), { text }), { content: true, step: true });
+
+  test("each window has its own steps; a card that another window changed meanwhile is not taken back", async () => {
+    const origin = appOrigin();
+    const a = await windowPage(origin, "A");
+    await a.add(D30.BOOK("b1", "Griffiths"));
+    await a.R.cache.savePrompt(card(a, "p_x", "Q. first?\nA. 1"), { content: true, step: true });
+    await edit(a, "p_x", "Q. second?\nA. 2");
+    assert.deepEqual(sizeOf(a), { undo: 2, redo: 0 });
+
+    const b = await windowPage(origin, "B", { w: "win2abcdef" });
+    await wait(20);
+    assert.equal(b.writer(), true);
+    assert.deepEqual(sizeOf(b), { undo: 0, redo: 0 }, "the second window has none of the first window's steps");
+    await edit(b, "p_x", "Q. third, from the other window?\nA. 3");
+    assert.deepEqual(sizeOf(b), { undo: 1, redo: 0 });
+
+    const r = await a.R.undo.undo();                        // A is not the writer: it takes the role and reads again first
+    assert.equal(a.writer(), true, "the undo took the writer role");
+    assert.equal(r.ok, false);
+    assert.equal(r.reason, "changed");
+    assert.equal(a.R.cache.prompt("p_x").text, "Q. third, from the other window?\nA. 3", "the other window's change stays");
+    assert.deepEqual(sizeOf(a), { undo: 0, redo: 0 }, "both steps of that card are gone here");
+    assert.equal(noticed(a, "Not undone: the card changed after that step."), true);
+
+    await b.use();                                           // B's own step is still good
+    const r2 = await b.R.undo.undo();
+    assert.equal(r2.ok, true);
+    assert.equal(b.R.cache.prompt("p_x").text, "Q. second?\nA. 2");
+    await a.use();
+    assert.equal(a.R.cache.prompt("p_x").text, "Q. second?\nA. 2", "and the first window reads it when it has the role again");
+    assert.deepEqual(a.logs, []);
+    assert.deepEqual(b.logs, []);
+  });
+
+  test("only a window that starts alone sweeps the pictures: a second window leaves alone what a step of the first may still name", async () => {
+    const DAY = 86400000, old = (id) => ({ id, mime: "image/png", bytes: new Uint8Array([1, 2, 3]), width: 1, height: 1, byteLength: 3, createdAt: Date.now() - 3 * DAY });
+    const origin = appOrigin();
+    const seed = await appPage(origin, "seed").boot();
+    await seed.take();
+    await seed.M.store.attachments.put(old("att_alone"));    // three days old, named by no prompt and no draft
+    seed.die();
+    await wait(5);
+    const a = await windowPage(origin, "A");
+    let left = "?";
+    for (let i = 0; i < 200 && left !== null; i++) { left = await a.R.store.attachments.get("att_alone"); if (left !== null) await wait(5); }
+    assert.equal(left, null, "the first window starts alone: its sweep takes the old picture");
+
+    await a.add(D30.BOOK("b1", "Griffiths"));
+    // a picture that only a step of window A names: an edit took it out of its card
+    await a.R.store.attachments.put(old("att_step"));
+    const withPic = "Q. the figure?\nA. ![snip](att:att_step)", without = "Q. the figure?\nA. a curve";
+    await a.R.cache.savePrompt(card(a, "p_pic", withPic), { content: true });
+    await edit(a, "p_pic", without);
+    assert.deepEqual(Array.from(await a.R.attachments.gc(withPic, without, { draftIds: [] })), [], "window A keeps it for its step");
+
+    const b = await windowPage(origin, "B", { w: "win2abcdef" });
+    await wait(80);                                          // B's start, with its sweep, is over
+    assert.ok(await b.R.store.attachments.get("att_step"), "the second window did not sweep");
+    const r = await a.R.undo.undo();
+    assert.equal(r.ok, true);
+    assert.equal(a.R.cache.prompt("p_pic").text, withPic);
+    assert.ok(await a.R.store.attachments.get("att_step"), "the card has its picture again");
+    assert.deepEqual(a.logs, []);
+    assert.deepEqual(b.logs, []);
+  });
+
+  test("a card that no other window touched is taken back after the role came back, on the copy that was read again", async () => {
+    const origin = appOrigin();
+    const a = await windowPage(origin, "A");
+    await a.add(D30.BOOK("b1", "Griffiths"));
+    await a.R.cache.savePrompt(card(a, "p_mine", "Q. mine, before?\nA. 1"), { content: true });
+    await a.R.cache.savePrompt(card(a, "p_theirs", "Q. theirs, before?\nA. 1"), { content: true });
+    await edit(a, "p_mine", "Q. mine, after?\nA. 1");
+    assert.deepEqual(sizeOf(a), { undo: 1, redo: 0 });
+
+    const b = await windowPage(origin, "B", { w: "win2abcdef" });
+    await wait(20);
+    await edit(b, "p_theirs", "Q. theirs, after?\nA. 1");
+    assert.equal(a.writer(), false);
+
+    const r = await a.R.undo.undo();
+    assert.equal(r.ok, true);
+    assert.equal(a.writer(), true);
+    assert.equal(a.R.cache.prompt("p_mine").text, "Q. mine, before?\nA. 1");
+    assert.equal(a.R.cache.prompt("p_theirs").text, "Q. theirs, after?\nA. 1", "what the other window wrote was read first, and stays");
+    await b.use();
+    assert.equal(b.R.cache.prompt("p_mine").text, "Q. mine, before?\nA. 1");
+    assert.equal(b.R.cache.prompt("p_theirs").text, "Q. theirs, after?\nA. 1");
+    assert.deepEqual(a.logs, []);
+    assert.deepEqual(b.logs, []);
+  });
+});

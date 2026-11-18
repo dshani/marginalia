@@ -32,6 +32,13 @@
  *   store write: a send-all of a few hundred cards costs no re-render per card. updatedAt moves; contentUpdatedAt
  *   and dueAt never do. A store write that fails rejects (code "store", after the toast; "locked" when the lock
  *   refused it), so the Obsidian write-ahead never sends on a marker that was not stored.
+ * - Steps for undo and redo (DECISIONS D33, BUILD-NOTES "Undo and redo"): savePrompt, removePrompt and restorePrompt
+ *   take opts.step (true, or a token of M.undo.group()) from the views, for a change that a person made to a card.
+ *   The writer then hands M.undo a copy of the record as it was and as it is now (M.undo.note). A savePrompt of the
+ *   cached record itself (the same object, changed in place) is no step: there is nothing to compare it with, so a
+ *   view saves a copy. Writes without opts.step are never steps: a review answer, the Obsidian send record, a found
+ *   position, an import. revertPrompts(changes) is M.undo's writer, all or nothing and in ONE store write;
+ *   stateKey(p) is what it compares.
  */
 (function (root) {
   "use strict";
@@ -173,6 +180,41 @@
       var json = JSON.stringify([kind, text, Array.isArray(p.tags) ? p.tags : [], !!p.flagged, p.collectionId || null, passageOf(p.anchor)]);
       return json.length + ":" + hash53(json);
     } catch (e) { return null; }
+  }
+
+  // What M.undo compares (DECISIONS D33, BUILD-NOTES "Undo and redo"): is the prompt live, the fields a person edits
+  // (those of contentKey) and its cards (the review state). "-" stands for no record; null (unserialisable data) equals
+  // nothing. The send record, a found position, the context snapshot and the time stamps are not in it.
+  function stateKey(p) {
+    if (!p || typeof p !== "object") return "-";
+    try {
+      var text = typeof p.text === "string" ? p.text : (p.text === null || p.text === undefined ? "" : String(p.text));
+      var kind = typeof p.kind === "string" && p.kind ? p.kind : "note";
+      return JSON.stringify([live(p), kind, text, Array.isArray(p.tags) ? p.tags : [], !!p.flagged, p.collectionId || null,
+        passageOf(p.anchor), Array.isArray(p.cards) ? p.cards : []]);
+    } catch (e) { return null; }
+  }
+  // The state without "is it live": the fields that revertPrompts writes.
+  function fieldsKey(p) { return stateKey(Object.assign({}, p, { deletedAt: null })); }
+  function samePassage(a, b) {
+    try { return JSON.stringify(passageOf(a)) === JSON.stringify(passageOf(b)); } catch (e) { return false; }
+  }
+  // Is the cached record `cur` in the state of the snapshot `want`? For no snapshot: no live record.
+  function inState(cur, want) {
+    if (want === null || want === undefined) return !live(cur);
+    var k = stateKey(cur);
+    return !!cur && k !== null && k === stateKey(want);
+  }
+  // A copy that shares nothing with the record (undefined when the record cannot be copied).
+  function snap(v) {
+    try { return JSON.parse(JSON.stringify(v)); } catch (e) { return undefined; }
+  }
+  // A writer that got opts.step (true, or a token of M.undo.group()) tells M.undo what it did: the record as it was
+  // and as it is now. → the step's handle ({retract()}) or null. Without js/undo.js nothing happens.
+  function noteStep(id, before, after, step) {
+    var U = M.undo;
+    if (!step || !U || typeof U.note !== "function" || before === undefined || after === undefined) return null;
+    try { return U.note({ id: id, before: before, after: after }, step) || null; } catch (e) { return null; }
   }
 
   function filterOpt(list, opts) { return opts && opts.live ? list.filter(live) : list; }
@@ -386,6 +428,10 @@
     if (!p.id) p.id = util().uuid("p_");
     var id = p.id;
     var isNew = !ps.has(id);
+    // a step (M.undo): the record as it was (null: a new prompt). A caller that changed the cached record itself (the
+    // same object) hands in "as it was" and "as it is" alike, and M.undo takes a change of no state as no step.
+    var step = opts.step, was = step ? ps.get(id) : null;
+    var before = step ? (was ? snap(was) : null) : undefined;
     normalizePrompt(p, now, isNew);
     p.updatedAt = now;
     var key = contentKey(p);
@@ -401,6 +447,7 @@
     ps.set(id, p);
     var token = null;
     if (isNew) { token = {}; firstWrites.set(id, token); } else supersede(id);
+    var noted = step ? noteStep(id, before, snap(p), step) : null;
     emit("prompt:saved", { prompt: p, isNew: isNew });
     return attempt(function () { return store().prompts.put(p); }).then(function () {
       if (token && firstWrites.get(id) === token) firstWrites.delete(id);
@@ -415,6 +462,7 @@
         ps.delete(id);
         sigs.delete(id);
         texts.delete(id);
+        if (noted && typeof noted.retract === "function") { try { noted.retract(); } catch (e2) { /* the step stays */ } }
         emit("prompt:deleted", { promptId: id, collectionId: p.collectionId });
       }
       var e = err("store", "Could not save the prompt", cause);
@@ -486,11 +534,12 @@
     var p = ps.get(id);
     if (!p) return Promise.reject(err("not_found", "No prompt " + id));
     if (!live(p) || lockedOut()) return Promise.resolve(p);
-    var now = stamp(opts);
+    var now = stamp(opts), step = opts && opts.step, before = step ? snap(p) : undefined;
     p.deletedAt = now;
     p.updatedAt = now;
     deriveDue(p);
     supersede(p.id);
+    if (step) noteStep(p.id, before, snap(p), step);
     emit("prompt:deleted", { promptId: p.id, collectionId: p.collectionId });
     return persist(store().prompts.put(p)).then(function () { return p; });
   }
@@ -499,14 +548,105 @@
     var p = ps.get(id);
     if (!p) return Promise.reject(err("not_found", "No prompt " + id));
     if (live(p) || lockedOut()) return Promise.resolve(p);
-    var now = stamp(opts);
+    var now = stamp(opts), step = opts && opts.step, before = step ? snap(p) : undefined;
     p.deletedAt = null;
     p.updatedAt = now;
     p.contentUpdatedAt = now;          // a resurrection must outrank an older tombstone in import merges
     deriveDue(p);
     supersede(p.id);
+    if (step) noteStep(p.id, before, snap(p), step);
     emit("prompt:restored", { promptId: p.id, collectionId: p.collectionId });
     return persist(store().prompts.put(p)).then(function () { return p; });
+  }
+
+  // revertPrompts(changes, {now}) → Promise<Array<Prompt|null>>: the writer of M.undo (DECISIONS D33). changes =
+  // [{id, from, to}]: for each prompt the two snapshots of a step (null: there was no record). ALL the prompts go from
+  // their state `from` to their state `to`, or none does. It is never a step itself.
+  // 1. Nothing is touched unless every prompt can go. It rejects code "changed" when a prompt is not in its state
+  //    `from` (stateKey: a review, another window, an import or a later edit came in between; for `from` null the
+  //    prompt must be missing or deleted), and code "gone" when a `to` is a live prompt whose book or deck is deleted,
+  //    or whose record is missing. err.ids names the prompts that are in the way. Code "bad_revert": no id, or an id
+  //    twice. Code "locked" in a tab that stepped aside.
+  // 2. Then every record changes here in one go, and the writers' bus events go out (prompt:deleted, prompt:restored,
+  //    prompt:saved), when all the records are as they will be. A prompt takes the state of its `to`:
+  //    - `to` null: the prompt is deleted, as removePrompt does (deletedAt and updatedAt are now); its fields stay.
+  //    - the fields of stateKey come from `to` when they differ: kind, text, tags, flagged, collectionId and the cards
+  //      (each with its schedule and its history, also a card that an edit dropped), and revisedAt (absent when `to`
+  //      has none: the struggling count goes on as before the step). The anchor and the context snapshot come from
+  //      `to` only when the collection or the passage differ (for a live prompt the context is then computed again);
+  //      else the record keeps its own, which may hold a newer found position. Every other field stays as the record
+  //      has it now: the Obsidian send record (obsidianSentAt, obsidianFile, obsidianPendingFile), createdAt.
+  //    - then it is live or deleted as `to` is (deletedAt null, or now).
+  //    updatedAt is now. For a prompt that is live afterwards contentUpdatedAt is now too (also when only the cards
+  //    differ), so the change wins an import merge and Obsidian counts the card as edited since its last send.
+  // 3. Then ONE store write (prompts.putMany, one transaction) stores them all, so the store never keeps half of a
+  //    step. When it fails the records keep their state here (the session's truth, as after an edit), and it rejects
+  //    code "store" after the toast "Could not save" (no toast when the lock refused the write). Code "locked" comes
+  //    only from part 1, when nothing was changed.
+  function revertPrompts(changes, opts) {
+    var list = Array.isArray(changes) ? changes : [], seen = new Set(), i, c;
+    for (i = 0; i < list.length; i++) {
+      c = list[i];
+      if (!c || typeof c.id !== "string" || !c.id || seen.has(c.id)) return Promise.reject(err("bad_revert", "revertPrompts needs {id, from, to} entries, each prompt once"));
+      seen.add(c.id);
+    }
+    if (lockedOut()) return Promise.reject(err("locked", "Marginalia is open in another tab"));
+    var stale = [], gone = [];
+    list.forEach(function (c) {
+      var cur = ps.get(c.id) || null;
+      if (!inState(cur, c.from)) { stale.push(c.id); return; }
+      if (!c.to || !live(c.to)) return;
+      var col = cols.get(c.to.collectionId);
+      if (!cur || !col || !live(col)) gone.push(c.id);
+    });
+    if (stale.length || gone.length) {
+      var refusal = stale.length ? err("changed", "The prompt changed after that step") : err("gone", "The book or deck of that prompt is deleted");
+      refusal.ids = stale.length ? stale : gone;
+      return Promise.reject(refusal);
+    }
+    var now = stamp(opts), records = [], events = [], out = [];
+    list.forEach(function (c) {
+      var cur = ps.get(c.id) || null, to = c.to;
+      if (!cur) { out.push(null); return; }                     // no record, and none to bring back (the check above)
+      var wasLive = live(cur), nowLive = !!to && live(to), fields = false, shownIn = cur.collectionId;
+      if (to && fieldsKey(cur) !== fieldsKey(to)) {             // the fields of the state: a new record, as a save makes it
+        var next = Object.assign({}, cur, {
+          kind: to.kind, text: to.text, tags: snap(Array.isArray(to.tags) ? to.tags : []), flagged: !!to.flagged,
+          collectionId: to.collectionId, cards: snap(Array.isArray(to.cards) ? to.cards : [])
+        });
+        if (cur.collectionId !== to.collectionId || !samePassage(cur.anchor, to.anchor)) {
+          next.anchor = to.anchor ? snap(to.anchor) : null;
+          next.context = to.context ? snap(to.context) : null;
+          if (nowLive) next.context = computeContext(cols.get(to.collectionId), next);
+        }
+        if (typeof to.revisedAt === "number") next.revisedAt = to.revisedAt; else delete next.revisedAt;
+        normalizePrompt(next, now, false);
+        sigs.set(next.id, contentKey(next));
+        texts.set(next.id, next.text);
+        ps.set(next.id, next);
+        cur = next;
+        fields = true;
+      }
+      if (!fields && wasLive === nowLive) { out.push(cur); return; }   // it is in that state already
+      if (wasLive !== nowLive) cur.deletedAt = nowLive ? null : now;    // live or deleted: on the record itself, as removePrompt and restorePrompt do
+      cur.updatedAt = now;
+      if (nowLive) cur.contentUpdatedAt = now;
+      deriveDue(cur);
+      supersede(cur.id);
+      records.push(cur);
+      if (wasLive && !nowLive) events.push(["prompt:deleted", { promptId: cur.id, collectionId: shownIn }]);
+      if (!wasLive && nowLive) events.push(["prompt:restored", { promptId: cur.id, collectionId: cur.collectionId }]);
+      if (nowLive && fields) events.push(["prompt:saved", { prompt: cur, isNew: false }]);
+      out.push(cur);
+    });
+    events.forEach(function (e) { emit(e[0], e[1]); });
+    if (!records.length) return Promise.resolve(out);
+    return attempt(function () { return store().prompts.putMany(records); }).then(function () { return out; }, function (cause) {
+      // the records keep their state here, as after an edit that could not be stored (also when the lock refused the
+      // write: that page says so itself, so there is no toast then)
+      if (!isLockError(cause)) toast("Could not save");
+      throw err("store", "Could not save the change", cause);
+    });
   }
 
   /* ------------------------------------------------------------------ collection writes */
@@ -988,6 +1128,9 @@
     patchPrompts: patchPrompts,
     removePrompt: removePrompt,
     restorePrompt: restorePrompt,
+    // DECISIONS D33 (BUILD-NOTES "Undo and redo"): the writer and the state key of M.undo
+    revertPrompts: revertPrompts,
+    stateKey: stateKey,
     saveCollection: saveCollection,
     removeCollection: removeCollection,
     restoreCollection: restoreCollection,

@@ -381,6 +381,39 @@ describe("M.tabs in the page (real modules, fake DOM of tools/smoke.js)", () => 
     assert.deepEqual(p.opens[p.opens.length - 1], ["b1", { position: { pageIndex: 3, fraction: 0.2, zoom: 1.5 } }]);
   });
 
+  test("D33: the card of an editor that waits with a tab that is not on screen is not changed by an undo", async () => {
+    const p = await page();
+    await p.add(BOOK("b1", "Griffiths"));
+    const ed = { open: null };
+    p.R.margin.editing = () => ed.open;
+    p.R.margin.activeEditor = () => (ed.open ? {} : null);
+    p.R.margin.openEditor = (o) => { ed.open = o; return {}; };
+    const closeBook = p.R.reader.close;
+    p.R.reader.close = () => { ed.open = null; return closeBook(); };
+    const C = p.R.cache, U = p.R.undo;
+    await C.savePrompt({ id: "p_held", collectionId: "b1", kind: "qa", text: "Q. one?\nA. 1", tags: [], flagged: false, anchor: null, context: null, cards: [] }, { content: true });
+    await C.savePrompt(Object.assign({}, C.prompt("p_held"), { text: "Q. two?\nA. 2" }), { content: true, step: true });
+    await p.R.app.route("reader", { collectionId: "b1" });
+    const book = p.R.tabs.active();
+    assert.deepEqual(plain(p.R.tabs.heldEditors()), []);
+    ed.open = { promptId: "p_held", anchor: null };       // E on the card; the user types
+    p.R.tabs.run("newTab");                               // Cmd+T: the library; the book closes, the editor waits with its tab
+    await wait(5);
+    assert.equal(ed.open, null);
+    assert.deepEqual(plain(p.R.tabs.heldEditors()), [{ promptId: "p_held", anchor: null }]);
+    const r = await U.undo();
+    assert.equal(r.ok, false);
+    assert.equal(r.reason, "editor");
+    assert.equal(C.prompt("p_held").text, "Q. two?\nA. 2", "the card under that editor did not change");
+    p.R.tabs.select(book);                                // back on the book: the editor opens again, and the tab holds none
+    await wait(5);
+    assert.deepEqual(plain(ed.open), { promptId: "p_held", anchor: null });
+    assert.deepEqual(plain(p.R.tabs.heldEditors()), []);
+    ed.open = null;                                       // the user cancels it
+    assert.equal((await U.undo()).ok, true);
+    assert.equal(C.prompt("p_held").text, "Q. one?\nA. 1");
+  });
+
   test("a book tab that is left with a prompt editor open gets the editor back when it is shown again", async () => {
     const p = await page();
     await p.add(BOOK("b1", "Griffiths"), BOOK("b2", "Arnold"));

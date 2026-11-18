@@ -12,6 +12,7 @@ Marginalia runs on your own computer. It has no account, no server on the intern
 - **Review.** Marginalia asks the prompts of one book, or of all your books, when they are due. A prompt that you forget comes back the next day.
 - **Get help with the wording.** Hints under the editor name common faults (a question that is too long, a yes/no question, a list as an answer), and a list of starter questions gives you other angles on a passage.
 - **Keep order.** Decks for prompts without a PDF, folders, tabs, and in the Mac app several windows.
+- **Take a change back.** Cmd+Z undoes the last change to a prompt, a note or a highlight, and Shift+Cmd+Z makes it again.
 - **See how it goes.** A statistics page shows when each prompt was asked and when it comes back.
 - **Take your data with you.** Export to Anki, Markdown or a JSON backup. Marginalia also saves a backup by itself every day.
 - **Copy an equation as LaTeX** (optional; this needs your own Anthropic API key).

@@ -52,6 +52,7 @@ function goodRaw() {
     library: { books: [{ id: ex.bookId, name: ex.bookName, folderId: ex.folderId, hasBytes: true, sha256: SHA, hashAlgo: "sha-256", byteLength: 27109 }],
       decks: 0, folders: [{ id: ex.folderId, name: ex.folderName, parentId: null }], prompts: PROMPTS.map((id) => ({ id, collectionId: ex.bookId })),
       obsidianFolder: "Self-test notes" },
+    undo: { steps: 1, undone: true, stored: true, redone: true, back: true, label: "Edit" },
     restored: { byteLength: 27109, sha256: SHA },
     pdf: { pages: 3, rendered: 2, screen: "reader", collectionId: ex.bookId }, fakeWorker: false,
     cmap: { url: CMAP, failed: true, ms: 4 },
@@ -154,7 +155,7 @@ test("everything as it should be: the self-test passes", () => {
   assert.deepEqual(Object.keys(v.checks).sort(), ["app-api", "app-mode", "app-only", "backup-on", "backup-write", "boot", "close-hides", "cmaps-blocked",
     "context-menu", "cover-mode", "desktop-bridge", "download", "external-links", "fonts-local", "hidden", "katex", "link-handoff", "menu",
     "mock-keychain", "no-node", "obsidian-server", "pdf-restore", "pdfjs", "permissions", "persisted", "requests-local", "sample-pdf",
-    "store-idb", "tabs", "welcome-card", "welcome-import", "windows"]);
+    "store-idb", "tabs", "undo-redo", "welcome-card", "welcome-import", "windows"]);
   const alone = goodCtx();
   alone.handoff = null;                               // the app run by hand: no second launch, no link-handoff check
   const w = st.evaluate(goodRaw(), alone);
@@ -209,6 +210,13 @@ test("each fault fails its own check", () => {
     ["welcome-import", (r) => { r.library.prompts.pop(); }],
     ["welcome-import", (r) => { r.library.obsidianFolder = ""; }],                            // the settings were not restored
     ["welcome-import", (r) => { r.clicked = false; }],
+    ["undo-redo", (r) => { delete r.undo; }],                                                 // the packaged page has no M.undo (the step threw)
+    ["undo-redo", (r) => { r.undo.steps = 0; }],
+    ["undo-redo", (r) => { r.undo.undone = false; }],
+    ["undo-redo", (r) => { r.undo.stored = false; }],                                         // the cache went back, the store did not
+    ["undo-redo", (r) => { r.undo.redone = false; }],
+    ["undo-redo", (r) => { r.undo.back = false; }],
+    ["undo-redo", (r) => { r.undo.label = "New prompt"; }],
     ["pdf-restore", (r) => { r.library.books[0].hasBytes = false; }],
     ["pdf-restore", (r) => { r.restored.sha256 = "0".repeat(64); }],
     ["pdf-restore", (r) => { r.restored = { byteLength: 0, sha256: null }; }],

@@ -5,13 +5,14 @@ PDF reader for writing spaced-repetition prompts in the margins (Andy Matuschak'
 "The user" in this file is the person on whose computer you work. `CLAUDE.local.md`, when it exists, holds the notes of that one computer (its folders, what is installed, what was verified there). It is not in the repository.
 
 ## Before changing behaviour
-- **Decisions**: `marginalia/docs/DECISIONS.md` (D1–D32) records what the project's first author settled. Treat it as fixed; ask the user before changing any of it.
+- **Decisions**: `marginalia/docs/DECISIONS.md` (D1–D33) records what the project's first author settled. Treat it as fixed; ask the user before changing any of it.
 - **Contracts**: `marginalia/docs/SPEC.md` §17 (module signatures, bus events) and `marginalia/docs/BUILD-NOTES.md` (binding overrides; it wins over SPEC). Read the sections for the modules you touch; for the Mac app, "Desktop app (binding)".
 - **Usage**: `marginalia/README.md`; building and testing the Mac app: `desktop/README.md`; for a new reader: `README.md` at the top.
 
 ## Conventions
-- One module per `js/<name>.js`, wrapped as in SPEC §17.1. Pure modules (util, scheduler, prompts, similar, context, keys, layout, anchors, markup, exporter) load in Node with no DOM.
+- One module per `js/<name>.js`, wrapped as in SPEC §17.1. Pure modules (util, scheduler, prompts, similar, context, keys, layout, anchors, markup, exporter, undo) load in Node with no DOM.
 - Each UI module owns its DOM host and its `css/<name>.css`; modules talk through the §17 functions and `M.bus` events.
+- A change that a person makes to a card is a step of `M.undo` (D33): the view saves a copy of the record with `M.cache.savePrompt(copy, {content: true, step: true})`, or deletes and restores with `{step: true}`. A write that is not the person's own change (a review answer, a send record, a found position, an import) carries no `step`. Contract: BUILD-NOTES "Undo and redo".
 - User text reaches the DOM only through `M.util.escapeHtml` or `M.markup.render`. Dialogs and notices use `M.app.confirm` and `M.app.toast`.
 - The Anthropic API key stays in this browser's localStorage; exports, logs and toasts never carry it.
 - PDF.js stays at 3.11.174 with `isEvalSupported: false`; every cdnjs tag keeps its SRI hash.
@@ -56,6 +57,7 @@ PDF reader for writing spaced-repetition prompts in the margins (Andy Matuschak'
 ## Open gaps
 - Not yet verified: Safari, live LaTeX transcription, folder drag and drop in a real browser.
 - Tabs (D30) in the real Mac app: the packaged self-test runs the tab commands in the page, not the key presses. Not yet verified: Cmd+T, Cmd+W and Shift+Cmd+T as macOS gives them to the Window menu, Ctrl+Tab, Cmd+Shift+] and Cmd+1 to Cmd+9 reaching the page, a held Cmd+T or Cmd+W acting once, and Cmd+W closing the About panel.
+- Undo and redo (D33) in the real Mac app: the tests press the keys in a page and in the fake window, and the packaged self-test runs a step, its undo and its redo through the page's own modules. Not yet verified: Cmd+Z and Shift+Cmd+Z reaching the page of the installed app when no text field has the focus (the Edit menu has the same keys for text; a click on Edit › Undo changes no card).
 - Windows (D31) in the real Mac app: the packaged self-test hands the writer role between two real windows and moves a tab out through the page's own command. Not yet verified: the drag gestures with the pointer (a tab dragged out of its window, onto another window's strip, along its strip), the small picture that follows the pointer as macOS draws it, how long the window takes for a tab let go on the desktop (macOS moves the picture back first; on a Marginalia window it comes at once), Cmd+N as macOS gives it to the Window menu, where the pointer is reported when a drag ends outside the window, and a hand-over to a window that macOS has put to sleep for long.
 - Obsidian link mode is not verified against the real Obsidian app (`obsidian://new` with `append` and `silent`); this includes "Send all" in link mode.
 - The Mac app on a real Mac: installing it with `marginalia app`, opening it, moving a library over from a browser and updating it worked on the first author's Mac. Not yet verified: the visible window (closing hides it, Window › Marginalia, the Dock icon, Cmd+Q while hidden), the AppleScript quit of `marginalia stop` and its Automation prompt, `marginalia://` links delivered by macOS and a browser handing them over from the cover, and signing with a self-made certificate (whether the Documents permission then survives an update).

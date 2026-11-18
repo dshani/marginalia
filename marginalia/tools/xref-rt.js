@@ -19,7 +19,7 @@ var NS = Object.keys(KEYS);
 var JS_PROPS = new Set(["length", "then", "catch", "finally", "call", "apply", "bind", "name", "prototype", "toString", "hasOwnProperty"]);
 
 var problems = [];
-// every js/<name>.js is one namespace M.<name> that tools/smoke.js loads (30 modules with js/backup.js, js/desktop.js, js/similar.js, js/stats.js and js/tabs.js)
+// every js/<name>.js is one namespace M.<name> that tools/smoke.js loads (31 modules with js/backup.js, js/desktop.js, js/similar.js, js/stats.js, js/tabs.js and js/undo.js)
 fs.readdirSync(path.join(ROOT, "js")).filter(function (f) { return /\.js$/.test(f); }).sort().forEach(function (f) {
   var n = f.slice(0, -3);
   if (!KEYS[n]) problems.push(["js/" + f, 1, "NOT LOADED as M." + n + " by tools/smoke.js (ORDER)", ""]);

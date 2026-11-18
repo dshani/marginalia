@@ -1453,6 +1453,9 @@
     select: select,
     reopen: reopen,
     list: list,
+    // DECISIONS D33: the options of the prompt editors that wait with their tabs (a book tab that was left with its
+    // editor open, see leaveActive and restoreEditor): M.undo leaves the cards of those editors alone
+    heldEditors: function () { return st.tabs.filter(function (t) { return !!t.editing && typeof t.editing === "object"; }).map(function (t) { return Object.assign({}, t.editing); }); },
     active: function () { return st.active; },
     started: function () { return st.started; },
     render: render,

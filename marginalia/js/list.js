@@ -617,10 +617,11 @@
 
   // ------------------------------------------------------------------ actions
 
-  function savePrompt(p) {
+  // `step`: true, or the token of a group when this save is one step together with another write (M.undo, D33).
+  function savePrompt(p, step) {
     var cache = M.cache || tryDep("cache");
     if (!cache || typeof cache.savePrompt !== "function") return Promise.reject(err("no_cache", "Storage is not ready"));
-    return Promise.resolve(cache.savePrompt(p, { content: true }));
+    return Promise.resolve(cache.savePrompt(p, { content: true, step: step || true }));   // a step: callers hand in a copy
   }
 
   function toggleFlag(p) {
@@ -650,13 +651,13 @@
     // removePrompt tombstones and emits prompt:deleted synchronously: refresh() re-renders at once and hands focus
     // to the neighbouring row (or the rows container when none is left), so it never drops to the body element and Z works.
     var removal;
-    try { removal = Promise.resolve(cache.removePrompt(p.id)); } catch (e) { removal = Promise.reject(e); }
+    try { removal = Promise.resolve(cache.removePrompt(p.id, { step: true })); } catch (e) { removal = Promise.reject(e); }
     removal.then(function () {
       if (!st) return;
       st.undoId = p.id;
       if (st.undoTimer) clearTimeout(st.undoTimer);
       st.undoTimer = setTimeout(function () { if (st) st.undoId = null; }, UNDO_TTL_MS);
-      toast("Prompt deleted · Undo (Z)", [{ label: "Undo", key: "z", run: function () { undoDelete(p.id); } }], UNDO_TTL_MS);
+      st.undoToast = { id: p.id, handle: toast("Prompt deleted · Undo (Z)", [{ label: "Undo", key: "z", run: function () { undoDelete(p.id); } }], UNDO_TTL_MS) };
     }, function () { toast("Could not delete the prompt"); });
   }
 
@@ -665,7 +666,7 @@
     if (!cache || typeof cache.restorePrompt !== "function") return;
     if (st && st.undoId === id) st.undoId = null;
     var restore;
-    try { restore = Promise.resolve(cache.restorePrompt(id)); } catch (e) { restore = Promise.reject(e); }
+    try { restore = Promise.resolve(cache.restorePrompt(id, { step: true })); } catch (e) { restore = Promise.reject(e); }
     restore.then(function () {
       if (st && st.rows.indexOf(id) >= 0) select(id, true);   // not when it belongs to another list or the search hides it
     }, function () { toast("Could not restore the prompt"); });
@@ -680,10 +681,10 @@
     ask.then(function (ok) {
       if (!ok) return;
       var keepSection = (!p.anchor && p.context && typeof p.context.sectionLabel === "string" && p.context.sectionLabel) ? p.context.sectionLabel : null;
-      p.anchor = null;
-      p.collectionId = deck.id;
-      p.context = { docName: deck.name || "", sectionLabel: keepSection, pageIndex: null, pageLabel: null };
-      return savePrompt(p).then(function () { toast("Moved to “" + (deck.name || "deck") + "”"); refresh(); });
+      // a copy (DECISIONS D33): the cache takes the record as it was for the step, so the move can be undone
+      var moved = Object.assign({}, p, { anchor: null, collectionId: deck.id,
+        context: { docName: deck.name || "", sectionLabel: keepSection, pageIndex: null, pageLabel: null } });
+      return savePrompt(moved).then(function () { toast("Moved to “" + (deck.name || "deck") + "”"); refresh(); });
     }).catch(function () { toast("Could not move the prompt"); });
   }
 
@@ -730,7 +731,12 @@
       editor = M.editor.create({
         host: host, prompt: p, initialText: str(p.text), anchor: p.anchor || null, batch: false,
         onSave: function (text) {
-          saveEdit(p, text); closeEditor(true);
+          if (saveEdit(p, text) === false) {                    // nothing was saved: the editor stays, with its text
+            // The editor drops its draft at every save. It takes the text back here, so it keeps a draft of it again.
+            if (editor && typeof editor.setText === "function") tryCall(function () { editor.setText(text); });
+            return;
+          }
+          closeEditor(true);
           // FIXES-1 FIX-1 a: a stale "split:<id>" draft never replaces the text from before THIS edit
           if (splitText !== null) { dropSplitDraft(p); splitSecond(p, splitText); }
         },
@@ -826,18 +832,38 @@
     return rec.id;
   }
 
+  // → false when nothing was saved: the editor then stays open with its text.
   function saveEdit(p, text) {
-    var pr = dep("prompts");
+    var pr = dep("prompts"), cache = M.cache || tryDep("cache"), step = true;
+    // The record as the cache has it NOW, not the one from when the editor opened: a flag, a move, a send record or
+    // an answer that came since stays (the margin's editor does the same).
+    var cur = cache && typeof cache.prompt === "function" ? tryCall(function () { return cache.prompt(p.id); }, null) : null;
+    if (cur) p = cur;
+    if (!live(p)) {
+      // The prompt was deleted while this editor was open (another window did it). The text is never written into a
+      // deleted record, where nobody sees it: the prompt comes back with the text that the person saves, as ONE step
+      // (the restore and the save carry one token). But not into a book or deck that is deleted too: then nothing is
+      // saved, and the editor stays open, so the text is not lost.
+      var col = cache && typeof cache.collection === "function" ? tryCall(function () { return cache.collection(p.collectionId); }, null) : null;
+      if (!col || !live(col) || typeof cache.restorePrompt !== "function") {
+        toast("Not saved: the book or deck of this prompt is deleted. Copy your text before you close the editor.", [], 8000);
+        return false;
+      }
+      step = M.undo && typeof M.undo.group === "function" ? tryCall(function () { return M.undo.group(); }, true) : true;
+      tryCall(function () { Promise.resolve(cache.restorePrompt(p.id, { step: step })).catch(noop); });
+      p = tryCall(function () { return cache.prompt(p.id); }, null) || p;
+    }
     var parsed = pr.parse(str(text));
     var rec = pr.reconcileCards(p, parsed, now());
     var old = str(p.text);
     // save a copy: the cached record changes only when the cache takes the new one (never half-edited)
     var next = Object.assign({}, p, { text: str(text), kind: parsed.kind, tags: parsed.tags.slice(), cards: rec.cards });
-    savePrompt(next).then(function () {
+    savePrompt(next, step).then(function () {
       if (M.attachments && typeof M.attachments.gc === "function") {
         tryCall(function () { Promise.resolve(M.attachments.gc(old, next.text, { draftIds: [] })).catch(noop); });
       }
     }, noop);
+    return true;
   }
 
   // ------------------------------------------------------------------ keyboard (on the list element only)
@@ -1004,7 +1030,7 @@
 
     st = {
       collectionId: collectionId, host: host, mode: mode, query: "", selected: null, rows: [],
-      editing: null, menu: null, dirty: false, undoId: null, undoTimer: null, subs: [],
+      editing: null, menu: null, dirty: false, undoId: null, undoTimer: null, undoToast: null, subs: [],
       chips: {}, live: [], info: new Map(), chipData: {},   // the active chips by id; the live prompts and their rowInfo
       alike: { texts: null, pairs: [], partners: null, ignored: null, ignoredSig: "", stale: true }, keepNeighbour: false,
       invoker: invoker, prevOwner: prevOwner, el: { root: rootEl, search: searchInput, list: listEl, count: count, chipBar: chipBar, chips: chipEls }
@@ -1036,6 +1062,14 @@
     var bus = M.bus || tryDep("bus");
     if (bus && typeof bus.on === "function") {
       EVENTS.forEach(function (t) { st.subs.push(bus.on(t, onBusEvent)); });
+      // the deleted prompt is back (the notice's Undo, Z, or Cmd+Z, DECISIONS D33): the offer and its notice go
+      st.subs.push(bus.on("prompt:restored", function (e) {
+        var u = st ? st.undoToast : null;
+        if (!u || !e || e.promptId !== u.id) return;
+        st.undoToast = null;
+        if (st.undoId === u.id) st.undoId = null;
+        if (u.handle && typeof u.handle.close === "function") tryCall(function () { u.handle.close(); });
+      }));
       st.subs.push(bus.on("doc:closed", function () { if (st && st.mode === "drawer") close(); }));
       st.subs.push(bus.on("settings:changed", onSettingsChanged));
     }
@@ -1107,6 +1141,8 @@
     collectionId: collectionId,
     // Z routed by M.app while "Prompt deleted · Undo (Z)" from the list shows: true when it restored one
     undoLast: function () { if (st && st.undoId) { undoDelete(st.undoId); return true; } return false; },
+    // DECISIONS D33: the prompt whose row holds the open editor (for the second half of a Split: the first half), or null
+    editingId: function () { return st && st.editing && typeof st.editing.id === "string" ? st.editing.id : null; },
     // the active filter chips' ids, in CHIPS order (FEATURES P1.3 e)
     activeChips: function () { return st ? CHIPS.filter(function (c) { return !!st.chips[c.id]; }).map(function (c) { return c.id; }) : []; },
     CHIPS: CHIPS,

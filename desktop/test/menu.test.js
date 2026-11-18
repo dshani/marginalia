@@ -297,3 +297,28 @@ test("no menu shortcut takes a key the web app uses (js/keys.js reader, editor a
   assert.ok(menuBindings.includes(keys.canonical("Meta+v")));
   assert.ok(!appBindings.has(keys.canonical("Meta+v")));
 });
+
+// DECISIONS D33: Cmd+Z and Shift+Cmd+Z are the Edit menu's Undo and Redo AND the web app's keys for the last change
+// to a card (js/keys.js UNDO_MAP). The second exception: the page takes them only outside a text field and stops their
+// default there, so the menu's Undo and Redo, which stay Electron's own roles, act on text alone.
+test("Undo and Redo keep Electron's roles and keys; the web app's undo keys are those two, never inside a text field", () => {
+  const keys = require(KEYS_JS);
+  keys.setPlatform("mac");
+  try {
+    const edit = menu.buildTemplate({}).find((m) => m.label === "Edit").submenu;
+    const undo = edit.find((i) => i.role === "undo"), redo = edit.find((i) => i.role === "redo");
+    assert.ok(undo && redo, "Electron's own roles: they act on the text field that has the focus");
+    assert.equal(undo.click, undefined, "nothing here runs the web app's undo");
+    assert.equal(redo.click, undefined);
+    assert.deepEqual(Object.keys(keys.UNDO_MAP), ["undo", "redo"]);
+    assert.equal(keys.canonical(menu.toKeysBinding(undo.accelerator)), keys.canonical(keys.UNDO_MAP.undo.binding));
+    assert.equal(keys.canonical(menu.toKeysBinding(redo.accelerator)), keys.canonical(keys.UNDO_MAP.redo.binding));
+    assert.equal(keys.UNDO_MAP.undo.inField, false, "inside a text field the page leaves Cmd+Z to the menu");
+    assert.equal(keys.UNDO_MAP.redo.inField, false);
+    // no other shortcut of the menu is a key of UNDO_MAP
+    const mine = [keys.canonical(keys.UNDO_MAP.undo.binding), keys.canonical(keys.UNDO_MAP.redo.binding)];
+    const others = menu.accelerators(menu.buildTemplate({})).filter((a) => a !== undo.accelerator && a !== redo.accelerator)
+      .map((a) => keys.canonical(menu.toKeysBinding(a)));
+    for (const b of others) assert.equal(mine.includes(b), false, b);
+  } finally { keys.setPlatform(null); }
+});

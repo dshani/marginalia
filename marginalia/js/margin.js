@@ -231,7 +231,7 @@
     focused: null, hot: null, forcedActive: null, editing: null,
     mode: "cards", answersHidden: false, readerMode: "wide",
     pageTops: [], pageHeights: [], layoutQueued: false, placeholdersQueued: false,
-    popover: null, sheetOpen: false, pendingUndo: null, menu: null, menuOutside: null,
+    popover: null, sheetOpen: false, pendingUndo: null, deleting: null, menu: null, menuOutside: null,
     ro: null, offs: [], buckets: [], focusedMarker: 0,
     cardW: CARD_W, pinned: false, scrollLeft: 0
   };
@@ -1101,7 +1101,7 @@
     if (p) ed.card.prompt = rec;               // the body re-renders from the saved text, not the old record
     closeEditorDom({ saved: true });
     var saved;
-    try { saved = Promise.resolve(M.cache.savePrompt(rec, { content: true })); } catch (e) { saved = Promise.reject(e); }
+    try { saved = Promise.resolve(M.cache.savePrompt(rec, { content: true, step: true })); } catch (e) { saved = Promise.reject(e); }   // a step (M.undo, D33)
     return saved.then(function (sp) {
       var A = M.attachments;
       if (A && typeof A.gc === "function") { try { Promise.resolve(A.gc(oldText, text, { draftIds: [] })).then(null, function () {}); } catch (e) { /* ignore */ } }
@@ -1309,7 +1309,7 @@
   function savePrompt(rec) {
     var C = M.cache;
     if (!C || typeof C.savePrompt !== "function") { var e = new Error("M.cache is not loaded"); e.code = "no_cache"; return Promise.reject(e); }
-    try { return Promise.resolve(C.savePrompt(rec, { content: true })); } catch (err) { return Promise.reject(err); }
+    try { return Promise.resolve(C.savePrompt(rec, { content: true, step: true })); } catch (err) { return Promise.reject(err); }   // flag, move, anchor: steps (D33)
   }
   function flag(id) {
     var p = st.items.get(id);
@@ -1344,7 +1344,9 @@
     closeMenu();
     if (st.editing && st.editing.id === id) closeEditorDom({ saved: false, keepDraft: true });
     var done;
-    try { done = Promise.resolve(C.removePrompt(id)); } catch (e) { done = Promise.reject(e); }
+    st.deleting = id;                                      // prompt:deleted comes at once: this function moves the focus
+    try { done = Promise.resolve(C.removePrompt(id, { step: true })); } catch (e) { done = Promise.reject(e); }
+    st.deleting = null;
     done.then(null, function (err) { try { console.error("[margin] delete failed:", err); } catch (e) { /* no console */ } });
     removeCard(id);
     if (st.pendingUndo && st.pendingUndo.toast && typeof st.pendingUndo.toast.close === "function") { try { st.pendingUndo.toast.close(); } catch (e) { /* ignore */ } }
@@ -1363,7 +1365,7 @@
     var C = M.cache;
     if (!C || typeof C.restorePrompt !== "function") return false;
     var id = u.id, done;
-    try { done = Promise.resolve(C.restorePrompt(id)); } catch (e) { done = Promise.reject(e); }
+    try { done = Promise.resolve(C.restorePrompt(id, { step: true })); } catch (e) { done = Promise.reject(e); }   // Z right after the delete: M.undo counts it as that step's undo
     done.then(function () {
       var p = typeof C.prompt === "function" ? C.prompt(id) : null;
       if (p && p.collectionId === st.collectionId && !p.deletedAt) { upsertCard(p); focus(id, { scroll: false }); }
@@ -1470,10 +1472,22 @@
   }
 
   // ---------------------------------------------------------------- items, events, mount
+  // A card goes because of a bus event (its prompt was deleted, or moved out of this book): by Cmd+Z or Shift+Cmd+Z
+  // (DECISIONS D33), by the prompt list, by another window. If it holds the focus, the focus must not be left on
+  // nothing: the reader takes it. The margin's own delete (deleteCard) moves the focus itself, to the next card.
+  function dropCard(id) {
+    var c = st.cards.get(id), held = false;
+    if (st.deleting !== id) {
+      try { held = !!(c && c.el && document.activeElement && (c.el === document.activeElement || c.el.contains(document.activeElement))); }
+      catch (e) { held = false; }
+    }
+    removeCard(id);
+    if (held) focusReader();
+  }
   function onPromptSaved(payload) {
     var p = payload && payload.prompt;
     if (!p || !p.id) return;
-    if (p.collectionId !== st.collectionId || p.deletedAt) { if (st.cards.has(p.id)) removeCard(p.id); return; }
+    if (p.collectionId !== st.collectionId || p.deletedAt) { if (st.cards.has(p.id)) dropCard(p.id); return; }
     if (st.editing && st.editing.id === p.id) { st.items.set(p.id, p); st.cards.get(p.id).prompt = p; return; }
     upsertCard(p);
   }
@@ -1559,8 +1573,15 @@
     on("page:rendered", schedulePlaceholders);
     on("page:evicted", schedulePlaceholders);
     on("prompt:saved", onPromptSaved);
-    on("prompt:deleted", function (pl) { if (pl && st.cards.has(pl.promptId)) removeCard(pl.promptId); });
+    on("prompt:deleted", function (pl) { if (pl && st.cards.has(pl.promptId)) dropCard(pl.promptId); });
     on("prompt:restored", function (pl) {
+      // the deleted prompt is back by another way than this notice's Undo or Z (Cmd+Z, DECISIONS D33): the offer and
+      // its "Prompt deleted · Undo (Z)" notice go
+      var u = st.pendingUndo;
+      if (u && pl && u.id === pl.promptId) {
+        st.pendingUndo = null;
+        if (u.toast && typeof u.toast.close === "function") { try { u.toast.close(); } catch (e) { /* ignore */ } }
+      }
       var C = M.cache, p = pl && C && typeof C.prompt === "function" ? C.prompt(pl.promptId) : null;
       if (p && p.collectionId === st.collectionId && !p.deletedAt) upsertCard(p);
     });

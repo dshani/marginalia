@@ -262,6 +262,39 @@ test("an unedited retry reaches a host that returned nothing once it can no long
   } finally { Date.now = realNow; }
 }));
 
+test("a host that gives the text back during onSave (a save that it refused) has a draft of it again, and a retry reaches it at once", () => withDom(async () => {
+  // the list's row editor when the book of its prompt was deleted meanwhile (DECISIONS D33): nothing is saved, and
+  // the text must not live in the open editor alone
+  const ls = new Map(), old = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, writable: true, value: {
+    getItem: (k) => (ls.has(k) ? ls.get(k) : null), setItem: (k, v) => { ls.set(k, String(v)); }, removeItem: (k) => { ls.delete(k); } } });
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  try {
+    const refused = [], p = { id: "p_refused", text: "Q. a\nA. b" }, key = editor.DRAFT_PREFIX + p.id;
+    let ed = null;
+    ed = make({ prompt: p, initialText: p.text, onSave: (text) => { refused.push(text); ed.setText(text); } });
+    const ta = ed.textarea;
+    ed.focus();
+    edit(ta, "Q. a\nA. my words");
+    await wait(400);
+    assert.equal(ls.get(key), "Q. a\nA. my words", "typing keeps a draft");
+    assert.ok(consumed(press(ta, "Enter", { meta: true })));
+    assert.deepEqual(refused, ["Q. a\nA. my words"]);
+    assert.equal(ls.has(key), false, "a save drops the draft");
+    await wait(400);
+    assert.equal(ls.get(key), "Q. a\nA. my words", "the text that the host gave back is a draft again");
+    assert.ok(consumed(press(ta, "Enter", { meta: true })));                   // the same text again, at once
+    assert.equal(refused.length, 2, "the retry reaches the host: nothing holds it back");
+    ed.destroy();                                          // the list closes: the editor goes without Save or Cancel
+    assert.equal(ls.get(key), "Q. a\nA. my words", "the draft stays for the next editor of that prompt");
+    const again = make({ prompt: p, initialText: p.text });
+    assert.equal(again.textarea.value, "Q. a\nA. my words", "which opens with the words");
+    again.destroy();
+  } finally {
+    if (old) Object.defineProperty(globalThis, "localStorage", old); else delete globalThis.localStorage;
+  }
+}));
+
 test("a host promise holds further saves until it settles; after a rejection the same text can be retried", () => withDom(async () => {
   const saved = [], writes = [];
   const ed = make({ initialText: "Q. a\nA. b", onSave: (text) => { saved.push(text); const d = deferred(); writes.push(d); return d.promise; } });

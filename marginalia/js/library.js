@@ -2313,16 +2313,22 @@
     var blocks = pr.parseBatch(str(text)).filter(function (b) { return b && b.parsed && b.parsed.kind !== "highlight"; });
     if (!blocks.length) { toast("Nothing to add — type a prompt first"); return Promise.resolve(0); }
     var base = now(), saved = 0, chain = Promise.resolve();
+    // DECISIONS D33: the prompts of one "Add" are one step of M.undo (a group), so one Cmd+Z takes them all back
+    var step = M.undo && typeof M.undo.group === "function" ? tryCall(function () { return M.undo.group(); }, true) : true;
     blocks.forEach(function (b, i) {
       var p = {
         collectionId: col.id, kind: b.parsed.kind, text: b.text, tags: b.parsed.tags.slice(), flagged: false, anchor: null,
         context: { docName: col.name || "", sectionLabel: b.section || null, pageIndex: null, pageLabel: null },
         cards: pr.reconcileCards(null, b.parsed, base + i).cards, createdAt: base + i, deletedAt: null, v: 1
       };
-      chain = chain.then(function () { return c.savePrompt(p, { content: true }); }).then(function () { saved++; });
+      chain = chain.then(function () { return c.savePrompt(p, { content: true, step: step }); }).then(function () { saved++; });
     });
     return chain.then(function () {
-      toast("Added " + plural(saved, "prompt"));
+      // DECISIONS D33: the focus stays in the add box, where Cmd+Z works on the box's text, so the notice has the
+      // Undo of this Add itself (M.undo takes it back only while it is still the newest step)
+      var undoAdd = saved > 0 && step && step !== true && M.undo && typeof M.undo.undo === "function"
+        ? [{ label: "Undo", run: function () { tryCall(function () { M.undo.undo({ group: step }); }); } }] : [];
+      toast("Added " + plural(saved, "prompt"), undoAdd);
       if (d.editor && typeof d.editor.setText === "function") tryCall(function () { d.editor.setText(""); });
       updateDeckHeader();
       return saved;

@@ -403,7 +403,7 @@
   }
 
   // Ids referenced by any live prompt (except opts.promptId), opts.draftIds, opts.extraText, localStorage
-  // drafts and every placeholder whose stored id has not yet been written into its editor's text.
+  // drafts, the steps of M.undo and every placeholder whose stored id has not yet been written into its editor's text.
   function referencedIds(opts) {
     opts = opts || {};
     var refs = new Set();
@@ -419,6 +419,11 @@
     if (opts.extraText) imageIds(opts.extraText).forEach(add);
     if (Array.isArray(opts.draftIds)) opts.draftIds.forEach(add);
     draftTexts().forEach(function (t) { imageIds(t).forEach(add); });
+    // DECISIONS D33: a text that an undo or a redo can bring back (the snapshots of M.undo) keeps its pictures
+    var U = M.undo;
+    if (U && typeof U.texts === "function") {
+      try { U.texts().forEach(function (t) { imageIds(t).forEach(add); }); } catch (e) { /* no steps */ }
+    }
     pendings.forEach(function (e) { if (!e.settled && e.id) refs.add(e.id); });
     return refs;
   }

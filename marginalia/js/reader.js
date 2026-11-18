@@ -937,7 +937,7 @@
       anchor: anchor, context: contextFor(anchor.pageIndex), cards: [],
       createdAt: now, contentUpdatedAt: now, updatedAt: now, deletedAt: null, v: 1
     };
-    var r = tryCall(function () { return M.cache.savePrompt(rec, { content: true }); });
+    var r = tryCall(function () { return M.cache.savePrompt(rec, { content: true, step: true }); });   // a step (M.undo, D33)
     Promise.resolve(r).catch(noop);
     return rec;
   }

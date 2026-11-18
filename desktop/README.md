@@ -38,7 +38,7 @@ marginalia               # open it
   new copy to `/Applications/Marginalia.app` (one rename in the same folder). Only then the older previous copy is
   deleted, the app is registered with macOS (`lsregister -f`), and the build copy and the previous copy are
   unregistered (`lsregister -u`), so `marginalia://` links always open the installed app;
-- ends with "Installed Marginalia 1.6.0. Open it with: marginalia". On any failure the installed app and the previous
+- ends with "Installed Marginalia 1.7.0. Open it with: marginalia". On any failure the installed app and the previous
   copy stay as they were and the exit code is 1; Ctrl+C or closing the Terminal window while it installs puts
   everything back too ("Stopped before the new app was in place, so the installed app was left as it was."). What a
   `kill -9` or a power cut leaves (`Marginalia.app.new`, `Marginalia.app.old`) is cleared by the next run.
@@ -469,7 +469,7 @@ failed, and prints every check with its detail.
 | @electron/packager | 20.3.0 (brings @electron/osx-sign 2.7.2, @electron/get 5.1.0, @electron/asar 4.3.1) |
 | @electron/fuses | 2.1.3 |
 | PDF.js / KaTeX / Outfit | 3.11.174 / 0.16.47 / Google Fonts v15 (from the web app's `index.html`; pinned in `vendor-lock.json`) |
-| the app | 1.6.0 (`package.json`'s `version`; the server gets it as `--app 1.6.0`) |
+| the app | 1.7.0 (`package.json`'s `version`; the server gets it as `--app 1.7.0`) |
 | built and tested with | macOS 26.6.2 (arm64), Node 23.7.0, npm 10.9.2, Python 3.14.7 (`/opt/homebrew/bin/python3`) |
 
 All three packages are exact pins in `devDependencies`; the app itself has no npm dependency (only Electron's and
@@ -478,6 +478,11 @@ under @electron/asar 4.3.1, used by @electron/packager 20.3.0 and @electron/univ
 app, and the only fix npm offers is a downgrade to @electron/packager 18.4.4, so it is left as is.
 
 ## Known limits
+
+- **Undo and Redo in the Edit menu act on text only.** Cmd+Z and Shift+Cmd+Z undo and redo the last change to a
+  card when no text field has the focus (DECISIONS D33, BUILD-NOTES "Undo and redo"): the page takes the two keys
+  itself, as in a browser. The menu items keep Electron's own roles, so a click on Edit › Undo with the pointer
+  changes no card. Not yet checked on a real Mac: that the two keys reach the page of the installed app.
 
 - **CJK character maps**: a PDF whose Chinese, Japanese or Korean text uses a font that is not embedded and one of
   PDF.js's predefined character maps (cMaps) shows none of that text, online or offline, in the app and in a browser

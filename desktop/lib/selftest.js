@@ -310,6 +310,26 @@ async function importChecks(opts) {
       obsidianFolder: M.settings.get("obsidianFolder")
     };
   });
+  // DECISIONS D33: a step on a card, its undo, its redo and its undo again, on the packaged page's own library
+  // (IndexedDB) and through its own modules. The card is one that the import brought; it ends with the text it had.
+  out.undo = await step("undo", async () => {
+    const C = M.cache, U = M.undo;
+    const p = C.prompts().filter((x) => x && !x.deletedAt)[0];
+    const before = p.text, edited = before + " (self-test)";
+    const parsed = M.prompts.parse(edited);
+    U.clear();
+    await C.savePrompt(Object.assign({}, p, { text: edited, kind: parsed.kind, tags: parsed.tags.slice(),
+      cards: M.prompts.reconcileCards(p, parsed, Date.now()).cards }), { content: true, step: true });
+    const steps = U.size().undo;
+    const un = await U.undo();
+    const undone = un.ok === true && C.prompt(p.id).text === before;
+    const stored = ((await M.store.prompts.all()).find((x) => x.id === p.id) || {}).text === before;
+    const re = await U.redo();
+    const redone = re.ok === true && C.prompt(p.id).text === edited;
+    const back = (await U.undo()).ok === true && C.prompt(p.id).text === before;
+    U.clear();
+    return { steps, undone, stored, redone, back, label: un.label || null };
+  });
   out.restored = await step("restored", async () => {
     const bytes = await M.store.docs.loadBytes(e.bookId);
     if (!bytes) return { byteLength: 0, sha256: null };
@@ -857,6 +877,9 @@ function evaluate(raw, ctx) {
     sameSet(prompts.map((p) => p.id), ex.promptIds) && prompts.every((p) => p.collectionId === ex.bookId) && lib.obsidianFolder === ex.obsidianFolder,
     { toasts, order: { imported: iImport, restored: iRestore, keyReminder: iKey }, cardAfter: r.cardAfter === undefined ? null : r.cardAfter,
       library: r.library || null, expected: { bookId: ex.bookId || null, folderId: ex.folderId || null, promptIds: ex.promptIds || null } });
+  // ---- DECISIONS D33: undo and redo of a step on a card, in the packaged page
+  const un = r.undo || {};
+  put("undo-redo", un.steps === 1 && un.undone === true && un.stored === true && un.redone === true && un.back === true && un.label === "Edit", r.undo || null);
   const rs = r.restored || {};
   put("pdf-restore", book.hasBytes === true && book.sha256 === ex.sha256 && book.hashAlgo === "sha-256" && book.byteLength === ex.byteLength &&
     rs.sha256 === ex.sha256 && rs.byteLength === ex.byteLength,

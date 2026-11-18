@@ -193,3 +193,32 @@ D32 The Obsidian connection is an option, and the project is ready for other peo
         welcome card names no browser: it reads "Welcome to Marginalia" and tells a new reader to start
         with an empty library. The project has a README, the licence and a .gitignore at its top. The
         app is 1.6.0.
+
+D33 Undo and redo for cards (2026-11-18). The user: "Is there a way to add undo/re-do commands?" Claude showed
+    what was there (Cmd+Z for the text in the editor; Z after a delete and the library's "Undo" notices, 8
+    seconds; U in a review, one step) and three ways: A, one undo and redo for cards; B, more notices of the
+    old kind; C, a history that stays in the library. The user: "Yes, build A". Built (rules in BUILD-NOTES
+    "Undo and redo"):
+    (1) Cmd+Z takes back the last change that a person made to a card (a prompt, a note or a highlight), and
+        Shift+Cmd+Z makes it again: a new card, a saved edit, a delete, a flag, "Move to…", "Anchor to
+        selection", each half of a Split, and the deck page's "Add" (all its prompts are one step). A notice
+        names what was taken back and has a button for the way back;
+    (2) up to 100 steps, with no time limit. The steps live in the window: a reload or a quit empties them,
+        and each window of the Mac app has its own (D31);
+    (3) in a text field the two keys stay the undo and redo of the text, and a card that is open in an
+        editor of that window is not changed under it (also when the editor waits in another tab). The
+        deck page's notice "Added n prompts" has its own Undo, because the focus stays in the add box
+        there; it takes back that Add only while the Add is the newest step. In a review Cmd+Z is U.
+        Z, U and the "Undo" notices work as before; Z right after a delete counts as the undo of that
+        step;
+    (4) a card that changed in another way since the step (a review answer, another window, an import) is
+        not taken back, and a notice says so. A card never goes back into a book or deck that is deleted;
+    (5) an undo keeps what is not the person's own change: the record that a card was sent to Obsidian (so
+        "Send all" never adds it twice, and the card counts as edited since its send) and a newer found
+        position of its passage. A picture that an edit took out stays in the store while a step can bring
+        its text back;
+    (6) Claude's proposals, which the user took with A: the first version covers cards only. The library
+        keeps its own "Undo" notices (a book, a deck, a folder, a move), and Settings, imports, exports and
+        review answers have no undo here. Claude's choice, told to the user: the Edit menu of the Mac app is
+        unchanged, so its Undo and Redo, clicked with the pointer, act on text only; the keys do both. The
+        app is 1.7.0.

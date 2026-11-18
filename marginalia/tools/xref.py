@@ -43,8 +43,9 @@ for f, l, ref, line in missing:
     print("MISSING    %s:%d  %s    %s" % (f, l, ref, line))
 
 # Load order: index.html loads every js/<name>.js exactly once (and nothing else from js/), in the order of
-# tools/smoke.js's ORDER, which the headless boot and the tests that run the real modules use (30 modules, with
+# tools/smoke.js's ORDER, which the headless boot and the tests that run the real modules use (31 modules, with
 # js/similar.js between prompts.js and context.js, js/obsidian.js and js/backup.js between exporter.js and cache.js,
+# js/undo.js right after cache.js,
 # js/stats.js between review.js and library.js, and js/tabs.js and js/desktop.js between library.js and app.js).
 order_problems = []
 try:

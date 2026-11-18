@@ -16,6 +16,9 @@
  *   review         : M.keys.reviewMap(settings.reviewKeys) → M.review.reveal/grade/undo/skip/goToSource/flag/remove/stop;
  *                    "?" → sheet
  *   library / settings / list / other : openPdf, shortcuts, settings, escape, reviewAll, reviewToday
+ * Undo and redo (DECISIONS D33, BUILD-NOTES "Undo and redo"): after M.tabs.handleKey and before the owner's map,
+ * M.keys.UNDO_MAP (Cmd+Z, Shift+Cmd+Z; never inside a text field) → M.undo.run("undo" | "redo"); in a review Cmd+Z is
+ * M.review.undo(); while the settings or a dialog is open the keys are left alone.
  * Escape chain: shortcut sheet → confirm → settings (M.library.closeSettings) → the reader's prompt-list drawer
  * (M.list.close, only while #list is shown: never the deck page's inline list, SPEC §14) → then,
  * for reader/card, M.snip.run("escape") → M.reader.run("escape") → M.margin.run("escape").
@@ -440,6 +443,23 @@
     return runApp(id, owner);
   }
 
+  // DECISIONS D33: Cmd+Z / Shift+Cmd+Z outside a text field (M.keys.UNDO_MAP) → the last change to a card
+  // (M.undo). In a review Cmd+Z is the review's own undo (U) and redo does nothing. While the settings or a dialog
+  // is open the keys are left alone (false: no preventDefault). A held key acts once. An open editor does not stop
+  // them (its text field keeps the keys for its own text; M.undo itself leaves a card alone that an editor holds).
+  function routeUndo(ev, id) {
+    var owner = effectiveOwner(ev);
+    if (settingsOpen() || dialogOpen()) return false;
+    try { ev.preventDefault(); } catch (e) { /* synthetic event */ }
+    if (ev.repeat) return true;
+    if (owner === "review") {
+      if (id === "undo" && has("review", "undo")) { try { M.review.undo(); } catch (e2) { report("review.undo", e2); } }
+      return true;
+    }
+    if (has("undo", "run")) { try { M.undo.run(id); } catch (e3) { report("undo.run(" + id + ")", e3); } }
+    return true;
+  }
+
   function handleSheetKey(ev, k) {
     if (k.match(ev, "Escape") || k.match(ev, "?")) { ev.preventDefault(); closeShortcuts(); return true; }
     if (k.match(ev, "Tab") || k.match(ev, "Shift+Tab")) { trapTab(ev, state.sheet.panel); return true; }
@@ -469,6 +489,8 @@
       try { tabbed = M.tabs.handleKey(ev) === true; } catch (e) { report("tabs.handleKey", e); }
       if (tabbed) { try { ev.preventDefault(); } catch (e2) { /* synthetic event */ } return true; }
     }
+    var undoId = k.UNDO_MAP ? k.dispatch(ev, [k.UNDO_MAP]) : null;   // D33: never inside a text field
+    if (undoId) return routeUndo(ev, undoId);
     var owner = effectiveOwner(ev), handled;
     if (owner === "editor") handled = routeEditor(ev, k);
     else if (owner === "review") handled = routeReview(ev, k);
@@ -1027,6 +1049,14 @@
     return rows;
   }
 
+  // D33: the two keys of M.keys.UNDO_MAP.
+  function undoRows(k) {
+    var U = k.UNDO_MAP || {}, rows = [];
+    if (U.undo) rows.push(row(k, "Undo the last change to a card", bindingOf(U, "undo")));
+    if (U.redo) rows.push(row(k, "Redo", bindingOf(U, "redo")));
+    return rows;
+  }
+
   function libraryRows(k) {
     var R = k.READER_MAP || {}, rows = [];
     LIBRARY_ORDER.forEach(function (id) { if (R[id]) rows.push(row(k, LIBRARY_LABELS[id] || LABELS[id] || id, bindingOf(R, id))); });
@@ -1056,6 +1086,7 @@
       panel.appendChild(section("Review", reviewRows(k)));
       panel.appendChild(section("Library", libraryRows(k)));
       if (k.TABS_MAP) panel.appendChild(section("Tabs", tabRows(k)));
+      if (k.UNDO_MAP) panel.appendChild(section("Undo and redo", undoRows(k)));
     } catch (e) { report("shortcut sheet", e); }
     host.appendChild(panel);
     host.classList.remove("is-hidden");
@@ -1260,6 +1291,21 @@
     state.roleBound = true;
     window.addEventListener("focus", onWindowUsed);
     ROLE_EVENTS.forEach(function (type) { window.addEventListener(type, guardReader, true); });
+  }
+
+  // Is another window of the Mac app there (each one holds the Web Lock "marginalia.window.<id>" for its life, see
+  // boot)? → Promise<boolean>. false outside handover mode (a browser page: one writing tab per origin). In handover
+  // mode an answer that does not come (the locks cannot be asked) counts as true: the window does not know that it
+  // is alone.
+  function otherWindows() {
+    if (!handoverOn()) return Promise.resolve(false);
+    if (!has("store", "held")) return Promise.resolve(true);
+    var mine = "window." + ((has("tabs", "windowId") ? M.tabs.windowId() : null) || "");
+    try {
+      return Promise.resolve(M.store.held()).then(function (names) {
+        return !Array.isArray(names) || names.some(function (n) { return String(n).indexOf("window.") === 0 && String(n) !== mine; });
+      }, function () { return true; });
+    } catch (e) { return Promise.resolve(true); }
   }
 
   // This window closes for good (the Mac app asks, then closes it): its list of tabs goes at once, so its tabs do
@@ -1669,8 +1715,12 @@
       if (covered()) { showCover(); return "cover"; }    // a browser page the desktop app replaced: the cover, nothing else
       if (state.lock || storeLocked()) return false;     // a newer tab took over while this one started: it shows nothing more
       if (has("attachments", "sweep")) {
-        try { Promise.resolve(M.attachments.sweep(Date.now())).catch(function (e) { report("attachments.sweep", e); }); }
-        catch (e) { report("attachments.sweep", e); }
+        // DECISIONS D33: a step of ANOTHER window of the Mac app may name a picture that no live prompt names any
+        // more (M.undo's steps are each page's own), so only a window that starts alone sweeps.
+        try {
+          otherWindows().then(function (others) { return others ? null : M.attachments.sweep(Date.now()); })
+            .catch(function (e) { report("attachments.sweep", e); });
+        } catch (e) { report("attachments.sweep", e); }
       }
       var r = parseHash(typeof location !== "undefined" ? location.hash : "");
       var first = { screen: r.screen, collectionId: r.params.collectionId, promptId: r.params.promptId };

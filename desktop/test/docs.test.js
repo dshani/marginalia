@@ -115,7 +115,7 @@ test("the docs say how the windows work: one window saves at a time, a window th
   assert.match(rules, /Not verified on the real Mac: the drag gestures between real windows/);
   assert.match(section(notes, "## One writing tab per origin (binding; added 2026-11-07)"), /Since D31 the pages of the Mac app do not use this rule/);
   const claude = read("CLAUDE.md");
-  assert.match(claude, /\(D1–D32\)/);
+  assert.match(claude, /\(D1–D33\)/);
   assert.match(claude, /Windows \(D31\) in the real Mac app/);
   const desk = section(read("desktop", "README.md"), "## What the app does").replace(/\s+/g, " ");
   assert.match(desk, /A window that is not the last one closes for good/);
@@ -170,4 +170,19 @@ test("no file of the project holds a home folder's path or an e-mail address (DE
     assert.match(read("THIRD-PARTY-NOTICES.md"), /Orbit[^\n]*Andy Matuschak[^\n]*Apache License 2\.0/);
     assert.match(read("LICENSES", "Apache-2.0.txt"), /Apache License\s+Version 2\.0, January 2004/);
   }
+});
+
+test("undo and redo (D33): the decision, the rules, and what is not verified on a real Mac are written down", () => {
+  const decisions = read("marginalia", "docs", "DECISIONS.md");
+  assert.match(decisions, /^D33 Undo and redo for cards \(2026-11-18\)/m);
+  assert.match(decisions, /the Edit menu of the Mac app is\s+unchanged/);
+  const rules = section(read("marginalia", "docs", "BUILD-NOTES.md"), "## Undo and redo (binding; added 2026-11-18)");
+  assert.match(rules, /`revertPrompts\(changes, \{now\}\)`/);
+  assert.match(rules, /ONE store write \(`prompts\.putMany`, one transaction\)/);
+  assert.match(rules, /The Edit menu of the Mac app is unchanged/);
+  assert.match(rules, /A click on Edit › Undo with the pointer acts on text only/);
+  assert.match(rules, /Not verified on the real Mac/);
+  assert.match(read("CLAUDE.md"), /Undo and redo \(D33\) in the real Mac app/);
+  const desk = section(read("desktop", "README.md"), "## Known limits").replace(/\s+/g, " ");
+  assert.match(desk, /Undo and Redo in the Edit menu act on text only/);
 });

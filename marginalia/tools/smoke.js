@@ -18,7 +18,7 @@ var vm = require("vm");
 
 var ROOT = path.resolve(__dirname, "..");
 var ORDER = ["util", "bus", "settings", "store", "scheduler", "prompts", "similar", "context", "keys", "layout",
-  "anchors", "markup", "exporter", "obsidian", "backup", "cache", "attachments", "pdfview", "reader", "editor", "margin",
+  "anchors", "markup", "exporter", "obsidian", "backup", "cache", "undo", "attachments", "pdfview", "reader", "editor", "margin",
   "list", "snip", "vision", "review", "stats", "library", "tabs", "desktop", "app"];
 var HOST_IDS = ["app", "banner", "tabs", "library", "deck", "stats", "reader", "toolbar", "scroller", "pages", "margin", "adder",
   "find", "snipOverlay", "sheet", "list", "review", "settings", "shortcuts", "toasts", "confirm", "cover", "fileInput"];

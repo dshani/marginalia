@@ -389,3 +389,40 @@ describe("keys", () => {
     });
   });
 });
+
+describe("UNDO_MAP (DECISIONS D33, BUILD-NOTES \"Undo and redo\")", () => {
+  after(() => keys.setPlatform(null));
+
+  test("undo is Mod+z and redo is Mod+Shift+z, never inside a text field", () => {
+    assert.deepEqual(JSON.parse(JSON.stringify(keys.UNDO_MAP)), { undo: { binding: "Mod+z", inField: false }, redo: { binding: "Mod+Shift+z", inField: false } });
+    assert.ok(Object.isFrozen(keys.UNDO_MAP) && Object.isFrozen(keys.UNDO_MAP.undo));
+    keys.setPlatform("mac");
+    assert.equal(keys.dispatch(ev("z", { metaKey: true }), [keys.UNDO_MAP]), "undo");
+    assert.equal(keys.dispatch(ev("Z", { metaKey: true, shiftKey: true }), [keys.UNDO_MAP]), "redo");
+    assert.equal(keys.dispatch(ev("z"), [keys.UNDO_MAP]), null, "plain Z is the reader's undo of a delete");
+    assert.equal(keys.dispatch(ev("z", { ctrlKey: true }), [keys.UNDO_MAP]), null, "Ctrl+Z on a Mac");
+    assert.equal(keys.dispatch(ev("z", { metaKey: true, altKey: true }), [keys.UNDO_MAP]), null);
+    for (const target of [TEXTAREA, INPUT, SELECT, EDITABLE, EDITABLE_ATTR]) {
+      assert.equal(keys.dispatch(ev("z", { metaKey: true, target }), [keys.UNDO_MAP]), null, "the text's own undo");
+      assert.equal(keys.dispatch(ev("Z", { metaKey: true, shiftKey: true, target }), [keys.UNDO_MAP]), null, "the text's own redo");
+    }
+    assert.equal(keys.dispatch(ev("z", { metaKey: true, target: CHECKBOX }), [keys.UNDO_MAP]), "undo", "a checkbox holds no text");
+    keys.setPlatform("other");
+    assert.equal(keys.dispatch(ev("z", { ctrlKey: true }), [keys.UNDO_MAP]), "undo");
+    assert.equal(keys.dispatch(ev("Z", { ctrlKey: true, shiftKey: true }), [keys.UNDO_MAP]), "redo");
+    assert.equal(keys.dispatch(ev("z", { metaKey: true }), [keys.UNDO_MAP]), null);
+  });
+
+  test("no other map and no review preset uses these two keys", () => {
+    keys.setPlatform("mac");
+    const mine = new Set(Object.values(keys.UNDO_MAP).map((e) => keys.canonical(e.binding)));
+    assert.equal(mine.size, 2);
+    const others = [];
+    for (const map of [keys.READER_MAP, keys.EDITOR_MAP, keys.TABS_MAP]) {
+      for (const id of Object.keys(map)) [].concat(map[id].binding).forEach((b) => others.push(keys.canonical(b)));
+    }
+    for (const preset of Object.values(keys.PRESETS)) for (const b of Object.values(preset)) [].concat(b).forEach((x) => others.push(keys.canonical(x)));
+    assert.ok(others.length > 40);
+    for (const b of others) assert.equal(mine.has(b), false, String(b));
+  });
+});

@@ -431,7 +431,7 @@ navigator.clipboard.write([new ClipboardItem(item)]).then(ok, fail);            
 
 ## 17. Module contracts
 
-**17.1 File skeleton.** Every `js/*.js` file is wrapped as below; pure modules (`util, scheduler, prompts, similar, context, keys, layout, anchors, markup, exporter`) must load in node with no DOM and resolve their dependencies through `dep()`. Module order (index.html, tools/smoke.js `ORDER`, the bundles; it replaces §18's list): util, bus, settings, store, scheduler, prompts, similar, context, keys, layout, anchors, markup, exporter, obsidian, backup, cache, attachments, pdfview, reader, editor, margin, list, snip, vision, review, stats, library, tabs, desktop, app (30 namespaces; js/similar.js since D26, right after its one dependency js/prompts.js; js/stats.js since D27, after js/review.js and before js/library.js, whose button opens it; js/tabs.js since D30, after js/library.js, whose buttons open tabs, and before js/desktop.js):
+**17.1 File skeleton.** Every `js/*.js` file is wrapped as below; pure modules (`util, scheduler, prompts, similar, context, keys, layout, anchors, markup, exporter, undo`) must load in node with no DOM and resolve their dependencies through `dep()`. Module order (index.html, tools/smoke.js `ORDER`, the bundles; it replaces §18's list): util, bus, settings, store, scheduler, prompts, similar, context, keys, layout, anchors, markup, exporter, obsidian, backup, cache, undo, attachments, pdfview, reader, editor, margin, list, snip, vision, review, stats, library, tabs, desktop, app (31 namespaces; js/undo.js since D33, right after js/cache.js, whose writers hand it the steps; js/similar.js since D26, right after its one dependency js/prompts.js; js/stats.js since D27, after js/review.js and before js/library.js, whose button opens it; js/tabs.js since D30, after js/library.js, whose buttons open tabs, and before js/desktop.js):
 
 ```js
 (function (root) {
@@ -465,7 +465,11 @@ M.cache    load() → Promise; collections() → Collection[]; collection(id); p
            reload() → Promise<{prompts, collections, folders}>   // D31: the maps as the store is now (another window wrote); the bus events of a local change
            savePrompt(p, {content: boolean}) → Promise<Prompt>  // sets updatedAt (+contentUpdatedAt; +revisedAt when a content save changes the text), derives dueAt, writes store
            removePrompt(id) → Promise (tombstone); restorePrompt(id) → Promise; saveCollection(c); removeCollection(id) (cascades)
+           // D33 (BUILD-NOTES "Undo and redo"): savePrompt, removePrompt and restorePrompt take opts.step (true | a token of M.undo.group())
+           revertPrompts([{id, from, to}], {now}) → Promise<Array<Prompt|null>> (all or none, ONE store write; rejects code "changed" | "gone" (err.ids) | "bad_revert" | "locked" | "store"); stateKey(p) → string|null
            counts(collectionId|null, now) → {prompts, cards, due, nextDueAt, writtenToday}; recontext(collectionId) → Promise
+M.undo     note({id, before, after}, step) → {retract()}|null; group() → token; undo({group}?) / redo() → Promise<{ok, action, reason?, label?, ids?}>   // D33
+           run("undo"|"redo") → boolean; canUndo(); canRedo(); size() → {undo, redo}; peek("undo"|"redo") → {label, excerpt, where}|null; texts() → string[]; clear(); idle() → Promise; LIMIT
 M.scheduler DAY, GROWTH, FIRST, LAPSE, LOOKAHEAD, NEXT_DAY, GROWTH_FULL, GROWTH_LEAST, LEGEND, MAX_ASKS, SCHEDULER_VERSION; newSchedule(now); jitter(now); isDue(s, now)
            neverAsked(s) → boolean; dueTime(s) → ms|null                                                                // D27
            growthOf(s) → thousandths; waitOf(s) → ms; heldUntil(p, i) → ms (0: not held); readyTime(p, i, now?) → ms|null; isReady(p, i, now) → boolean   // D28, D29 (p: a prompt, i: a card index)
@@ -489,6 +493,7 @@ M.keys     normalize(ev) → binding; match(ev, binding) → boolean; parse(bind
            dispatch(ev, maps) → actionId|null (maps = [{actionId: {binding, inField, run}}]); conflicts(map) → [[a, b]]
            PRESETS {Default, Arrows, Vim, "Anki-like"}; READER_MAP; EDITOR_MAP; REVIEW_ACTIONS; LATE_REVIEW_ACTIONS ["flag", "delete"]
            TABS_MAP   // D30: newTab, closeTab, reopenTab, nextTab, prevTab, tab1 … tab8, lastTab (BUILD-NOTES "Key routing", "Tabs")
+           UNDO_MAP   // D33: undo "Mod+z", redo "Mod+Shift+z", never inside a text field (BUILD-NOTES "Undo and redo")
 M.layout   compute(cards, {activeId, gap, maxDrift, collapsedH}) → [{id, top, collapsed}]   // cards: [{id, anchorY, height, collapsed}]
 M.anchors  rectsFromClientRects(rects, pageBox, viewport) → pdfRects; fromSelection(range, pageViews) → Anchor|null
            fromMarginY(pageIndex, yPdf) → Anchor; anchorY(anchor, pageTops, viewports) → px; viewportRects(anchor, pageIndex, viewport)

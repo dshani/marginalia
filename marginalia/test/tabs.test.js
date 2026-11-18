@@ -594,7 +594,7 @@ describe("two tabs of one origin: the newest one writes", () => {
 });
 
 /* ------------------------------------------------------------------ the notice (#tabLock) in the real app */
-// The 30 modules in the fake window of tools/smoke.js (compiled here without its final main() call, as in
+// The 31 modules in the fake window of tools/smoke.js (compiled here without its final main() call, as in
 // test/app.test.js), given this origin's IndexedDB, localStorage and BroadcastChannel. The window has no fetch, so
 // M.backup stays "unavailable" (no_fetch) and asks no server.
 

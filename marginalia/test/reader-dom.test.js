@@ -1267,3 +1267,27 @@ test("C wraps the selection in braces and writes a :: inside it as \\::, so sele
   assert.deepEqual(h.errors, []);
   assert.deepEqual(h.toasts, []);
 });
+
+test("H saves the new highlight as a step of M.undo (DECISIONS D33)", async () => {
+  const h = harness({ collections: [book("A")] });
+  await h.M.reader.open("A", {});
+  const calls = [], save = h.cache.savePrompt;
+  h.cache.savePrompt = (p, opts) => { calls.push({ kind: p.kind, opts: opts }); return save(p); };
+  h.M.reader.selection = rectAnchor(0, [100, 600, 300, 620]);
+  assert.equal(h.M.reader.run("highlight"), true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].kind, "highlight");
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[0].opts)), { content: true, step: true });
+  // the page follows an undo and a redo of it: what M.cache.revertPrompt does to the record, and says on the bus
+  const rec = h.cache.promptsOf("A").find((p) => p.kind === "highlight");
+  const drawn = () => h.pagesEl.querySelectorAll(".hl[data-id=\"" + rec.id + "\"]").length;
+  assert.ok(drawn() > 0, "the highlight is drawn");
+  rec.deletedAt = Date.now();
+  h.M.bus.emit("prompt:deleted", { promptId: rec.id, collectionId: "A" });
+  assert.equal(drawn(), 0, "undo: the highlight leaves the page");
+  rec.deletedAt = null;
+  h.M.bus.emit("prompt:restored", { promptId: rec.id, collectionId: "A" });
+  assert.ok(drawn() > 0, "redo: it is drawn again");
+  await h.M.reader.close();
+  assert.deepEqual(h.errors, []);
+});

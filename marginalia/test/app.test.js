@@ -938,3 +938,134 @@ describe("boot starts M.backup (real modules, fake DOM of tools/smoke.js)", () =
     assert.deepEqual([s.status, s.dir, s.today, s.last], ["on", "~/Documents/Marginalia Backups", "2026-11-09", null]);
   });
 });
+
+// ---- DECISIONS D33: Cmd+Z and Shift+Cmd+Z (M.keys.UNDO_MAP) → M.undo -----------------------------------------------
+describe("undo and redo keys (DECISIONS D33)", () => {
+  let undo;
+  const BUTTON_IN_EDITOR = { tagName: "BUTTON", closest: (sel) => (sel === ".editor" ? { tagName: "DIV" } : null) };
+  // a document in which a dialog of another module is up (or not): what dialogOpen() asks
+  function withDialog(open, fn) {
+    const had = Object.prototype.hasOwnProperty.call(globalThis, "document"), prev = globalThis.document;
+    globalThis.document = { body: { tagName: "BODY" }, getElementById: () => null, querySelector: (sel) => (open && sel === ".dialog" ? { tagName: "DIV" } : null) };
+    try { return fn(); } finally { if (had) globalThis.document = prev; else delete globalThis.document; }
+  }
+  before(() => { keys.setPlatform("mac"); });
+  after(() => { keys.setPlatform(null); delete M.undo; });
+  beforeEach(() => {
+    installStubs();
+    undo = { calls: [], run(id) { undo.calls.push(id); return true; } };
+    M.undo = undo;
+    app.setFocusOwner("reader");
+  });
+
+  test("outside a text field Cmd+Z runs undo and Shift+Cmd+Z runs redo: in the reader, on a card, in the list, in the library", () => {
+    for (const owner of ["reader", "card", "list", "library"]) {
+      app.setFocusOwner(owner);
+      undo.calls.length = 0;
+      const z = press("z", { metaKey: true });
+      assert.equal(z.handled, true, owner);
+      assert.equal(z.e.prevented, 1, owner);
+      const y = press("Z", { metaKey: true, shiftKey: true });
+      assert.equal(y.handled, true, owner);
+      assert.equal(y.e.prevented, 1, owner);
+      assert.deepEqual(undo.calls, ["undo", "redo"], owner);
+    }
+    assert.deepEqual(snip.calls.concat(reader.calls, margin.calls), [], "no command of the reader ran");
+    assert.equal(review.undo.calls.length, 0);
+  });
+
+  test("in a text field the keys stay the text's own undo and redo", () => {
+    for (const target of [TEXTAREA, IN_EDITOR_TEXTAREA]) {
+      const z = press("z", { metaKey: true, target });
+      assert.equal(z.handled, false);
+      assert.equal(z.e.prevented, 0);
+      const y = press("Z", { metaKey: true, shiftKey: true, target });
+      assert.equal(y.handled, false);
+      assert.equal(y.e.prevented, 0);
+    }
+    assert.deepEqual(undo.calls, []);
+  });
+
+  test("in the settings and with a dialog up the keys are left alone", () => {
+    const left = (what, opts) => {
+      for (const k of [["z", {}], ["Z", { shiftKey: true }]]) {
+        const r = press(k[0], Object.assign({ metaKey: true }, k[1], opts));
+        assert.equal(r.handled, false, what);
+        assert.equal(r.e.prevented, 0, what);
+      }
+    };
+    app.setFocusOwner("settings");
+    left("the settings are open");
+    app.setFocusOwner("library");
+    withDialog(true, () => left("a dialog is up"));
+    assert.deepEqual(undo.calls, []);
+    withDialog(false, () => assert.equal(press("z", { metaKey: true }).handled, true));
+    assert.deepEqual(undo.calls, ["undo"]);
+    // the settings sheet is on screen while another owner has the focus (a click on the page behind it)
+    const had = Object.prototype.hasOwnProperty.call(globalThis, "document"), prev = globalThis.document;
+    const sheet = { classList: { contains: () => false } };
+    globalThis.document = { body: { tagName: "BODY" }, getElementById: (id) => (id === "settings" ? sheet : null), querySelector: () => null };
+    try { left("the settings sheet is shown"); } finally { if (had) globalThis.document = prev; else delete globalThis.document; }
+    assert.deepEqual(undo.calls, ["undo"]);
+  });
+
+  test("an open editor keeps the keys only in its text field: on one of its buttons, or with the focus elsewhere, they run M.undo", () => {
+    app.setFocusOwner("editor");                            // the editor owns the focus, the key comes from a plain element
+    assert.equal(press("z", { metaKey: true }).handled, true);
+    app.setFocusOwner("reader");                            // the deck page's add box: the focus is on its "Add prompts" button
+    const onButton = press("Z", { metaKey: true, shiftKey: true, target: BUTTON_IN_EDITOR });
+    assert.equal(onButton.handled, true);
+    assert.equal(onButton.e.prevented, 1);
+    assert.deepEqual(undo.calls, ["undo", "redo"], "M.undo itself leaves a card alone that an editor holds");
+    assert.deepEqual(editor.calls, [], "no command of the editor ran");
+    app.setFocusOwner("editor");
+    assert.equal(press("z", { metaKey: true, target: IN_EDITOR_TEXTAREA }).handled, false, "in its text field: the text's own undo");
+    assert.deepEqual(undo.calls, ["undo", "redo"]);
+  });
+
+  test("in a review Cmd+Z is the review's own undo (U), and Shift+Cmd+Z does nothing", () => {
+    app.setFocusOwner("review");
+    const z = press("z", { metaKey: true });
+    assert.equal(z.handled, true);
+    assert.equal(z.e.prevented, 1);
+    assert.equal(review.undo.calls.length, 1);
+    const y = press("Z", { metaKey: true, shiftKey: true });
+    assert.equal(y.handled, true);
+    assert.equal(y.e.prevented, 1, "the key is not passed on");
+    assert.equal(review.undo.calls.length, 1);
+    assert.deepEqual(undo.calls, []);
+  });
+
+  test("a held key acts once: the repeats are taken and do nothing", () => {
+    assert.equal(press("z", { metaKey: true }).handled, true);
+    for (let i = 0; i < 3; i++) {
+      const r = press("z", { metaKey: true, repeat: true });
+      assert.equal(r.handled, true);
+      assert.equal(r.e.prevented, 1);
+    }
+    assert.deepEqual(undo.calls, ["undo"]);
+    app.setFocusOwner("review");
+    press("z", { metaKey: true, repeat: true });
+    assert.equal(review.undo.calls.length, 0);
+  });
+
+  test("plain Z and U keep their work; a page without js/undo.js takes the keys and does nothing", () => {
+    margin.run = function (id) { margin.calls.push(id); return id === "undoDelete"; };
+    assert.equal(press("z").handled, true);
+    assert.deepEqual(margin.calls, ["undoDelete"]);
+    assert.deepEqual(undo.calls, []);
+    delete M.undo;
+    const z = press("z", { metaKey: true });
+    assert.equal(z.handled, true);
+    assert.equal(z.e.prevented, 1);
+  });
+
+  test("a failing M.undo.run does not break the key listener", () => {
+    M.undo = { run() { throw new Error("boom"); } };
+    const errors = [], real = console.error;
+    console.error = (...a) => errors.push(a.join(" "));
+    try { assert.equal(press("z", { metaKey: true }).handled, true); } finally { console.error = real; }
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /undo\.run\(undo\)/);
+  });
+});

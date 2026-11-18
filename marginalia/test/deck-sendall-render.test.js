@@ -14,7 +14,7 @@
 // FEATURES A9: the send record (the markers written ahead of each request and the records after) goes through
 // M.cache.patchPrompts, so a Send all of 200 cards emits no prompt:saved at all and the list builds no row for it,
 // while every marker is in the store before the request leaves.
-// The real 30 modules run in the fake window of tools/smoke.js (memory store; compiled without its main() call, as
+// The real 31 modules run in the fake window of tools/smoke.js (memory store; compiled without its main() call, as
 // test/app.test.js does). A stand-in for tools/serve.py answers through M.obsidian._setFetch and the opener only
 // records its URI: nothing reaches a network, a vault or a folder, and no obsidian:// URI is opened.
 // Run from the project root: node --test

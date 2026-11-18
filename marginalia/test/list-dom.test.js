@@ -228,7 +228,8 @@ M.editor = {
     const ta = doc.createElement("textarea");
     ta.value = opts.initialText || "";
     opts.host.appendChild(ta);
-    const ed = { opts, ta, destroyed: false, focus() { ta.focus(); }, destroy() { ed.destroyed = true; }, run() { return false; } };
+    const ed = { opts, ta, destroyed: false, sets: [], focus() { ta.focus(); }, destroy() { ed.destroyed = true; }, run() { return false; },
+      setText(t) { ta.value = String(t); ed.sets.push(String(t)); } };   // sets: the texts that the host gave back
     editors.push(ed);
     return ed;
   }
@@ -844,4 +845,242 @@ test("FIX-2: with a chip focused, Backspace and Delete delete nothing, F flags n
   press("Backspace");
   await sleep(20);
   assert.ok(cache.prompt(delId).deletedAt, "Backspace on a row deletes");
+});
+
+// ------------------------------------------------------------------ DECISIONS D33: undo and redo
+
+test("D33: an edit, a flag, Move to… and a delete in the list are steps of M.undo; the rows follow undo and redo", async () => {
+  require(js("undo"));
+  const U = M.undo;
+  U.clear();
+  const ids = await seedBook("b_undo", ["Q. a?\nA. 1", "Q. b?\nA. 2", "Q. c?\nA. 3"]);
+  await cache.saveCollection({ id: "d_undo", kind: "deck", name: "Deck for undo" });
+  openDrawer("b_undo");
+  const rowText = (i) => rowEls(drawer)[i].textContent;
+  try {
+    // E, then the editor's save
+    rowEls(drawer)[0].focus();
+    press("e");
+    const ed = editors[editors.length - 1];
+    ed.opts.onSave("Q. a, edited?\nA. 1");
+    await sleep(20);
+    assert.equal(cache.prompt(ids[0]).text, "Q. a, edited?\nA. 1");
+    assert.deepEqual(U.size(), { undo: 1, redo: 0 });
+    assert.equal(U.peek("undo").label, "Edit");
+    assert.equal((await U.undo()).ok, true);
+    await sleep(20);
+    assert.equal(cache.prompt(ids[0]).text, "Q. a?\nA. 1");
+    assert.match(rowText(0), /a\?/);
+    assert.doesNotMatch(rowText(0), /edited/, "the row shows the text from before the edit");
+    assert.equal((await U.redo()).ok, true);
+    await sleep(20);
+    assert.match(rowText(0), /a, edited\?/);
+
+    // F
+    rowEls(drawer)[0].focus();
+    press("f");
+    await sleep(20);
+    assert.equal(cache.prompt(ids[0]).flagged, true);
+    assert.equal(U.peek("undo").label, "Flag");
+    assert.equal((await U.undo()).ok, true);
+    assert.equal(cache.prompt(ids[0]).flagged, false);
+
+    // ⋯ › Move to… › the deck: the list saves a copy, so the cache still has the record as it was for the step
+    const cached = cache.prompt(ids[1]);
+    mouseClick(find(rowEls(drawer)[1], hasClass("list__more")));
+    let menu = find(drawer, hasClass("list__menu"));
+    mouseClick(find(menu, (n) => n.textContent === "Move to…"));
+    menu = find(drawer, hasClass("list__menu"));
+    mouseClick(find(menu, (n) => n.textContent === "Deck for undo"));
+    await sleep(20);
+    assert.equal(cache.prompt(ids[1]).collectionId, "d_undo");
+    assert.equal(cache.prompt(ids[1]).anchor, null);
+    assert.equal(cached.collectionId, "b_undo", "the record the cache held was not changed in place");
+    assert.equal(cached.anchor.quote, "passage 1");
+    assert.deepEqual(rowIds(drawer), [ids[0], ids[2]]);
+    assert.equal(U.peek("undo").label, "Move");
+    assert.equal((await U.undo()).ok, true);
+    await sleep(20);
+    assert.equal(cache.prompt(ids[1]).collectionId, "b_undo");
+    assert.equal(cache.prompt(ids[1]).anchor.quote, "passage 1", "back in its book, at its passage");
+    assert.deepEqual(rowIds(drawer), ids);
+
+    // Backspace, then Z: the list's own undo of a delete counts as the undo of that step
+    const steps = U.size().undo;
+    rowEls(drawer)[2].focus();
+    press("Backspace");
+    await sleep(20);
+    assert.equal(isLive(ids[2]), false);
+    assert.equal(U.size().undo, steps + 1);
+    assert.equal(U.peek("undo").label, "Delete");
+    const offerZ = app.toasts[app.toasts.length - 1];
+    assert.equal(offerZ.opts.text, "Prompt deleted · Undo (Z)");
+    press("z");
+    await sleep(20);
+    assert.equal(isLive(ids[2]), true);
+    assert.deepEqual(U.size(), { undo: steps, redo: 1 });
+    assert.equal(offerZ.closed, true, "the prompt is back: the notice is gone");
+    assert.equal((await U.redo()).ok, true);
+    await sleep(20);
+    assert.equal(isLive(ids[2]), false);
+    assert.deepEqual(rowIds(drawer), [ids[0], ids[1]]);
+    assert.equal((await U.undo()).ok, true);
+    await sleep(20);
+    assert.deepEqual(rowIds(drawer), ids);
+
+    // Backspace, then Cmd+Z's undo: the list's own offer and its notice go, so Z does nothing after it
+    rowEls(drawer)[2].focus();
+    press("Backspace");
+    await sleep(20);
+    const offer = app.toasts[app.toasts.length - 1];
+    assert.equal(offer.opts.text, "Prompt deleted · Undo (Z)");
+    assert.equal(offer.closed, false);
+    assert.equal((await U.undo()).ok, true);
+    await sleep(20);
+    assert.equal(isLive(ids[2]), true);
+    assert.equal(offer.closed, true, "“Prompt deleted · Undo (Z)” is gone with the delete");
+    assert.equal(list.undoLast(), false, "no delete is on offer any more");
+    assert.deepEqual(rowIds(drawer), ids);
+  } finally { U.clear(); }
+});
+
+test("D33: the second half of a Split is a new prompt, a step of its own", async () => {
+  require(js("undo"));
+  const U = M.undo;
+  U.clear();
+  const ids = await seedBook("b_undo_split", ["Q. one and two?\nA. 1 and 2"]);
+  openDrawer("b_undo_split");
+  try {
+    mouseClick(find(rowEls(drawer)[0], hasClass("list__more")));
+    mouseClick(find(find(drawer, hasClass("list__menu")), (n) => n.textContent === "Split"));
+    editors[editors.length - 1].opts.onSave("Q. one?\nA. 1");
+    await sleep(20);
+    assert.equal(cache.prompt(ids[0]).text, "Q. one?\nA. 1");
+    editors[editors.length - 1].opts.onSave("Q. two?\nA. 2");       // the second editor: a new prompt
+    await sleep(20);
+    const second = cache.promptsOf("b_undo_split").find((p) => p.text === "Q. two?\nA. 2");
+    assert.ok(second);
+    assert.deepEqual(U.size(), { undo: 2, redo: 0 });
+    assert.equal(U.peek("undo").label, "New prompt");
+    assert.equal((await U.undo()).ok, true);
+    assert.equal(isLive(second.id), false, "the new half is gone");
+    assert.equal(cache.prompt(ids[0]).text, "Q. one?\nA. 1", "the first half keeps its edit");
+    assert.equal(U.peek("undo").label, "Edit");
+    assert.equal((await U.undo()).ok, true);
+    assert.equal(cache.prompt(ids[0]).text, "Q. one and two?\nA. 1 and 2", "and a second undo brings the whole prompt back");
+  } finally { U.clear(); }
+});
+
+test("D33: a prompt whose row editor is open is not changed under it, also when another row has the focus; the editor's save starts from the record as it is now", async () => {
+  require(js("undo"));
+  const U = M.undo;
+  U.clear();
+  const ids = await seedBook("b_undo_open", ["Q. a?\nA. 1", "Q. b?\nA. 2"]);
+  openDrawer("b_undo_open");
+  try {
+    rowEls(drawer)[0].focus();
+    press("f");                                             // the newest step: a flag on row 0
+    await sleep(20);
+    assert.equal(cache.prompt(ids[0]).flagged, true);
+    press("e");                                             // its editor opens
+    const ed = editors[editors.length - 1];
+    assert.equal(list.editingId(), ids[0]);
+    rowEls(drawer)[1].focus();                              // the person clicks the other row: the editor stays open
+    assert.equal(list.editingId(), ids[0]);
+    app.toasts.length = 0;
+    const r = await U.undo();
+    assert.deepEqual({ ok: r.ok, reason: r.reason }, { ok: false, reason: "editor" });
+    assert.equal(cache.prompt(ids[0]).flagged, true, "nothing changed under the editor");
+    assert.deepEqual(U.size(), { undo: 1, redo: 0 });
+    assert.equal(app.toasts[app.toasts.length - 1].opts.text, "Save or cancel the editor of that card first.");
+
+    // meanwhile the record changes by another way (a send record, in place; an answer in a review, as a new record)
+    await cache.patchPrompts([{ id: ids[0], fields: { obsidianSentAt: 123 } }]);
+    const answered = Object.assign({}, cache.prompt(ids[0]), { cards: [{ i: 0, createdAt: 1, lastReviewedAt: 5, intervalMs: 9, dueAt: 14, log: [{ at: 5, outcome: "remembered" }] }] });
+    await cache.savePrompt(answered, { content: false });
+    ed.opts.onSave("Q. a, edited?\nA. 1");
+    await sleep(20);
+    const saved = cache.prompt(ids[0]);
+    assert.equal(saved.text, "Q. a, edited?\nA. 1");
+    assert.equal(saved.flagged, true);
+    assert.equal(saved.obsidianSentAt, 123);
+    assert.equal(saved.cards.length, 1);
+    assert.equal(saved.cards[0].lastReviewedAt, 5, "the answer that came while the editor was open is kept");
+    assert.equal(list.editingId(), null);
+  } finally { U.clear(); }
+});
+
+test("D33: a prompt that was deleted while its row editor was open comes back with the text that the person saves, as one step", async () => {
+  require(js("undo"));
+  const U = M.undo;
+  U.clear();
+  const ids = await seedBook("b_undo_gone", ["Q. a?\nA. 1", "Q. b?\nA. 2"]);
+  openDrawer("b_undo_gone");
+  const heard = [], off = [M.bus.on("prompt:restored", (e) => heard.push("restored " + e.promptId)), M.bus.on("prompt:saved", (e) => heard.push("saved " + e.prompt.id))];
+  try {
+    rowEls(drawer)[0].focus();
+    press("e");
+    const ed = editors[editors.length - 1];
+    await cache.removePrompt(ids[0]);                       // another window deleted it (no step of this page)
+    assert.equal(isLive(ids[0]), false);
+    const stamp = cache.prompt(ids[0]).contentUpdatedAt;
+    await sleep(5);
+    heard.length = 0;
+    ed.opts.onSave("Q. my new words?\nA. 1");
+    await sleep(20);
+    assert.equal(isLive(ids[0]), true, "the text is not written into a deleted record, where nobody sees it");
+    assert.equal(cache.prompt(ids[0]).text, "Q. my new words?\nA. 1");
+    assert.deepEqual(heard, ["restored " + ids[0], "saved " + ids[0]], "it comes back as a restore, then the save");
+    assert.ok(cache.prompt(ids[0]).contentUpdatedAt > stamp, "and it outranks its deleted record in an import merge");
+    assert.deepEqual(rowIds(drawer), ids);
+    assert.equal(list.editingId(), null, "the editor closed");
+    assert.deepEqual(ed.sets, [], "a save that worked gives no text back to the editor");
+    assert.deepEqual(U.size(), { undo: 1, redo: 0 }, "the restore and the save are ONE step");
+    assert.equal(U.peek("undo").label, "Restore");
+    assert.equal((await U.undo()).ok, true);
+    assert.equal(isLive(ids[0]), false, "undo: the prompt is as it was before the save, deleted");
+    assert.equal(cache.prompt(ids[0]).text, "Q. a?\nA. 1");
+    assert.equal((await U.redo()).ok, true);
+    assert.equal(cache.prompt(ids[0]).text, "Q. my new words?\nA. 1");
+
+    // saved with the text as it was: the prompt comes back all the same (a restore alone)
+    U.clear();
+    rowEls(drawer)[1].focus();
+    press("e");
+    const ed2 = editors[editors.length - 1];
+    await cache.removePrompt(ids[1]);
+    ed2.opts.onSave("Q. b?\nA. 2");
+    await sleep(20);
+    assert.equal(isLive(ids[1]), true);
+    assert.deepEqual(U.size(), { undo: 1, redo: 0 });
+  } finally { U.clear(); off.forEach((f) => f()); }
+});
+
+test("D33: a save never brings a prompt back into a book that is deleted: nothing is saved, and the editor keeps the text", async () => {
+  require(js("undo"));
+  const U = M.undo;
+  U.clear();
+  const ids = await seedBook("b_undo_nobook", ["Q. a?\nA. 1"]);
+  openDrawer("b_undo_nobook");
+  try {
+    rowEls(drawer)[0].focus();
+    press("e");
+    const ed = editors[editors.length - 1];
+    await cache.removeCollection("b_undo_nobook");          // another window deleted the whole book
+    assert.equal(isLive(ids[0]), false);
+    assert.equal(list.editingId(), ids[0], "the editor is still open");
+    const before = JSON.stringify(cache.prompt(ids[0]));
+    app.toasts.length = 0;
+    ed.opts.onSave("Q. words that must not get lost?\nA. 1");
+    await sleep(20);
+    assert.equal(JSON.stringify(cache.prompt(ids[0])), before, "nothing was written");
+    assert.equal(isLive(ids[0]), false);
+    assert.equal(list.editingId(), ids[0], "the editor stays open with the text");
+    assert.equal(ed.destroyed, false);
+    // the editor dropped its draft for this save: it takes the text back, so it keeps a draft of it again
+    assert.deepEqual(ed.sets, ["Q. words that must not get lost?\nA. 1"]);
+    assert.equal(ed.ta.value, "Q. words that must not get lost?\nA. 1");
+    assert.equal(app.toasts[app.toasts.length - 1].opts.text, "Not saved: the book or deck of this prompt is deleted. Copy your text before you close the editor.");
+    assert.deepEqual(U.size(), { undo: 0, redo: 0 });
+  } finally { U.clear(); }
 });
