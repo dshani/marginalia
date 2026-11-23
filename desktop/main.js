@@ -886,6 +886,7 @@ async function runSelfTest(win) {
   await probeOpenAfterInput(wc);
   extra.handoff = await probeHandoff(wc);
   extra.openPdf = await probeOpenPdf(wc);
+  extra.zotero = await probeZotero(wc);
   extra.tabs = await probeTabs(wc);
   extra.windows = await probeWindows(win);
   extra.appApi = await probeAppApi();
@@ -1118,6 +1119,19 @@ async function probeOpenPdf(wc) {
   } catch (e) { return { before: null, after: null, refused: null, waiting: state.pendingPdfs.length, error: String(e && e.message ? e.message : e) }; }
 }
 
+// DECISIONS D34, step 2: the page says its books' prompts (M.desktop.sendZotero, as it does by itself 2 s after a
+// change), and the app's server then answers GET /api/zotero/books, as Marginalia for Zotero asks it, with that list.
+async function probeZotero(wc) {
+  try {
+    const page = await wc.executeJavaScript("window.Marginalia.desktop.sendZotero().then((sent) => ({ sent, " +
+      "books: window.Marginalia.desktop.zoteroBooks() }))");
+    const res = await server.httpGet(PORT, "/api/zotero/books", 3000);
+    let body = null;
+    try { body = JSON.parse(res.body); } catch (e) { body = null; }
+    return { page, status: res.status, body, error: null };
+  } catch (e) { return { page: null, status: null, body: null, error: String(e && e.message ? e.message : e) }; }
+}
+
 function backupFiles() {
   try { return fs.readdirSync(opts.backupDir).filter((n) => /^marginalia-backup-\d{4}-\d{2}-\d{2}\.json$/.test(n)); }
   catch (e) { return []; }
@@ -1153,6 +1167,7 @@ function finishSelfTest(raw, error, extra) {
       contextMenus: extra ? extra.contextMenus : null,
       handoff: extra ? extra.handoff : null,
       openPdf: extra ? extra.openPdf : null,
+      zotero: extra ? extra.zotero : null,
       appApi: extra ? extra.appApi : null,
       prepared: extra ? extra.prepared : null,
       folders: extra ? extra.folders : null,

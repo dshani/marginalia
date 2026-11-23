@@ -4739,5 +4739,94 @@ class LatestBackupApiTest(unittest.TestCase):
         self.assertIn("Backups: %s got shorter while it was being sent, so it was cut off" % self.NAME, logged)
 
 
+
+class ZoteroApiTest(unittest.TestCase):
+    """DECISIONS D34, step 2: /api/zotero/books on the desktop app's server (the page POSTs its books' SHA-256s and
+    prompts, Marginalia for Zotero GETs them) beside a server made without --app (404 for both, as an unknown route).
+    In memory only: each server has its own, and nothing is written to disk."""
+
+    VERSION = "1.2.3"
+    A, B = "a" * 64, "B" * 64
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app, cls.app_thread = serve_in_thread(app_version=cls.VERSION)
+        cls.plain, cls.plain_thread = serve_in_thread()
+        cls.app_port, cls.plain_port = cls.app.server_address[1], cls.plain.server_address[1]
+
+    @classmethod
+    def tearDownClass(cls):
+        stop_in_thread(cls.app, cls.app_thread)
+        stop_in_thread(cls.plain, cls.plain_thread)
+
+    def put(self, books, port=None, client=serve.APP_CLIENT, headers=None):
+        port = port or self.app_port
+        h = dict(post_headers(port))
+        if client is not None:
+            h[serve.CLIENT_HEADER] = client
+        h.update(headers or {})
+        return http_request(port, "POST", serve.ZOTERO_PATH, {"books": books}, h)
+
+    def got(self, port=None, headers=None):
+        status, _, payload, _ = http_request(port or self.app_port, "GET", serve.ZOTERO_PATH, headers=headers)
+        return status, payload
+
+    def test_the_page_says_its_books_and_zotero_reads_them(self):
+        status, headers, payload, _ = self.put([{"sha256": self.A, "prompts": 3}, {"sha256": self.B, "prompts": 0},
+                                                {"sha256": self.A.upper(), "prompts": 2}])
+        self.assertEqual((status, payload), (200, {"ok": True, "books": 2}))
+        status, payload = self.got()
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["books"], {self.A: 5, self.B.lower(): 0}, "lower case; a SHA-256 twice adds up")
+        self.assertIsInstance(payload["at"], int)
+        _, headers, _, _ = http_request(self.app_port, "GET", serve.ZOTERO_PATH)
+        self.assertEqual((headers.get("cache-control"), headers.get("x-content-type-options")), ("no-store", "nosniff"))
+        self.assertFalse([k for k in headers if k.startswith("access-control-")], "no CORS")
+        # the next POST replaces the list: a book that is gone is gone
+        self.assertEqual(self.put([{"sha256": self.B, "prompts": 1}])[0], 200)
+        self.assertEqual(self.got()[1]["books"], {self.B.lower(): 1})
+        self.assertEqual(self.put([])[0], 200)
+        self.assertEqual(self.got()[1]["books"], {})
+
+    def test_a_bad_list_is_refused_and_keeps_what_was_there(self):
+        self.assertEqual(self.put([{"sha256": self.A, "prompts": 4}])[0], 200)
+        for bad in ([{"sha256": "abc", "prompts": 1}], [{"sha256": self.A, "prompts": -1}],
+                    [{"sha256": self.A, "prompts": True}], [{"sha256": self.A, "prompts": 1.5}], [{"sha256": self.A}],
+                    ["x"], [{"sha256": self.A, "prompts": serve.MAX_ZOTERO_PROMPTS + 1}]):
+            status, _, payload, _ = self.put(bad)
+            self.assertEqual((status, payload["ok"]), (400, False), bad)
+        status, _, payload, _ = http_request(self.app_port, "POST", serve.ZOTERO_PATH, {"list": []},
+                                             dict(post_headers(self.app_port), **{serve.CLIENT_HEADER: "app"}))
+        self.assertEqual(status, 400)
+        too_many = [{"sha256": "%064x" % i, "prompts": 1} for i in range(serve.MAX_ZOTERO_BOOKS + 1)]
+        self.assertEqual(self.put(too_many)[0], 400)
+        self.assertEqual(oversized(self.app_port, serve.ZOTERO_PATH, serve.MAX_ZOTERO_BODY + 1), 413)
+        self.assertEqual(self.got()[1]["books"], {self.A: 4})
+
+    def test_only_the_apps_page_writes_and_another_site_cannot_read(self):
+        self.assertEqual(self.put([{"sha256": self.A, "prompts": 7}])[0], 200)
+        for client in (None, serve.MOVE_CLIENT, "browser"):
+            status, _, payload, _ = self.put([{"sha256": self.A, "prompts": 0}], client=client)
+            self.assertEqual((status, payload["error"]), (409, serve.APP_ONLY), client)
+        for h in ({"Origin": "https://example.com"}, {"X-Marginalia": "0"}, {"Content-Type": "text/plain"}):
+            self.assertEqual(self.put([], headers=h)[0] // 100, 4, h)
+        self.assertEqual(self.got()[1]["books"], {self.A: 7}, "none of those changed it")
+        self.assertEqual(self.got(headers={"Sec-Fetch-Site": "cross-site"})[0], 403)
+        self.assertEqual(self.got(headers={"Sec-Fetch-Site": "same-origin"})[0], 200)
+        self.assertEqual(self.got(headers={"Host": "rebind.example:%d" % self.app_port})[0], 403)
+
+    def test_without_the_app_there_is_no_such_route(self):
+        unknown = http_request(self.plain_port, "GET", "/api/no-such-route")[2]
+        self.assertEqual(self.got(port=self.plain_port), (404, unknown))
+        status, _, payload, _ = self.put([{"sha256": self.A, "prompts": 1}], port=self.plain_port)
+        self.assertEqual((status, payload), (404, {"ok": False, "error": "not found"}))
+        other, thread = serve_in_thread(app_version=self.VERSION)
+        try:
+            self.assertEqual(self.got(port=other.server_address[1])[1]["books"], {}, "each server has its own list")
+            self.assertIsNone(self.got(port=other.server_address[1])[1]["at"])
+        finally:
+            stop_in_thread(other, thread)
+
+
 if __name__ == "__main__":
     unittest.main()

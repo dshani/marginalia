@@ -204,6 +204,11 @@ In the Mac app you can open a PDF from Zotero: right-click an item (or its PDF) 
 small plugin Marginalia for Zotero; `desktop/README.md`, "Zotero", says how to install it. The app also
 shows up in Finder's Open With for every PDF.
 
+Zotero then shows which of those items have prompts: while the app runs, such an item gets the tag **Marginalia** (in
+Marginalia's red, unless you give it another colour)
+and a note such as "12 prompts in Marginalia" (it counts what the library counts as prompts: Q./A., cloze and notes, not highlights). The tag
+goes when the book has no prompts any more.
+
 ## Export and import
 
 Settings › Data, the library footer, or any book or deck menu:

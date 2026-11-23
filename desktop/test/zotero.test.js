@@ -160,3 +160,243 @@ test("the .xpi is a zip of exactly the plugin's files, stored, the same bytes ea
   fs.writeFileSync(path.join(copy, "manifest.json"), JSON.stringify(m));
   assert.throws(() => pack.entries(copy), /lacks what Zotero requires: applications\.zotero\.update_url/);
 });
+
+// ---- step 2 (D34): the tag and the note ----------------------------------------------------------------------------
+// A Zotero library with tags and child notes: items by libraryID and key, saveTx() counted, notes made with new Item("note").
+function libraryZotero() {
+  const items = new Map(), byKey = new Map();
+  let next = 1;
+  const Z = { isMac: true, saves: 0 };
+  function add(it) {
+    it.id = next++; it.libraryID = it.libraryID || 1; it.key = it.key || "K" + String(it.id).padStart(7, "0");
+    it.deleted = false; it.tags = it.tags || [];
+    it.hasTag = (t) => it.tags.includes(t);
+    it.addTag = (t) => { if (!it.tags.includes(t)) it.tags.push(t); };
+    it.removeTag = (t) => { it.tags = it.tags.filter((x) => x !== t); };
+    it.saveTx = async () => { Z.saves++; if (!items.has(it.id)) { items.set(it.id, it); byKey.set(it.libraryID + "/" + it.key, it); } return it.id; };
+    items.set(it.id, it);
+    byKey.set(it.libraryID + "/" + it.key, it);
+    return it;
+  }
+  Z.Items = { get: (id) => items.get(id) || false, getByLibraryAndKey: (lib, key) => byKey.get(lib + "/" + key) || false };
+  Z.Item = function (type) {
+    const it = { itemType: type, isPDFAttachment: () => false, isRegularItem: () => false, html: null };
+    it.setNote = (h) => { it.html = h; };
+    it.id = next++; it.libraryID = 1; it.key = "N" + String(it.id).padStart(7, "0"); it.deleted = false; it.tags = [];
+    it.saveTx = async () => { Z.saves++; items.set(it.id, it); byKey.set(it.libraryID + "/" + it.key, it); it.parentItemID = it.parentID; return it.id; };
+    return it;
+  };
+  Z.regular = () => add({ isPDFAttachment: () => false, isRegularItem: () => true, getAttachments: () => [] });
+  Z.pdf = (parent, file) => {
+    const it = add({ isPDFAttachment: () => true, isRegularItem: () => false, parentItemID: parent ? parent.id : null,
+      getFilePathAsync: async () => file });
+    if (parent) { const prev = parent.getAttachments(); parent.getAttachments = () => prev.concat([it.id]); parent.getBestAttachment = async () => it; }
+    return it;
+  };
+  Z.notesOf = (parent) => Array.from(items.values()).filter((x) => x.itemType === "note" && x.parentID === parent.id && !x.deleted);
+  return Z;
+}
+function syncSetup(answer) {
+  const Z = libraryZotero(), pref = { text: null }, later = [], every = [], fetched = [];
+  const env = {
+    Zotero: Z, id: "{plugin}", alert: () => {}, exec: async () => true,
+    sha256: async (file) => file.replace(/^.*\//, "").replace(/\.pdf$/, "").padEnd(64, "0"),
+    fetchBooks: async (url) => { fetched.push(url); const a = typeof answer.value === "function" ? answer.value() : answer.value; if (a instanceof Error) throw a; return a; },
+    prefs: { get: () => pref.text, set: (t) => { pref.text = t; } },
+    every: (ms, fn) => { every.push({ ms, fn }); return () => { every.length = 0; }; },
+    later: (ms, fn) => { later.push({ ms, fn }); return () => {}; }
+  };
+  return { Z, p: plugin.make(env), pref, later, every, fetched };
+}
+const SHA_A = "a".padEnd(64, "0"), SHA_B = "b".padEnd(64, "0");
+
+test("step 2: an open remembers each PDF by its SHA-256 with its attachment, and syncs 15 s and 60 s later", async () => {
+  const s = syncSetup({ value: null });
+  const paper = s.Z.regular(), att = s.Z.pdf(paper, "/storage/X/a.pdf");
+  await s.p.open([paper]);
+  const state = JSON.parse(s.pref.text);
+  assert.deepEqual(state.books, { [SHA_A]: [{ libraryID: 1, key: att.key }] });
+  assert.deepEqual(s.later.map((x) => x.ms), plugin.AFTER_OPEN_MS);
+  assert.deepEqual(plugin.AFTER_OPEN_MS, [15000, 60000]);
+  await s.p.open([att]);                               // the same PDF again: remembered once
+  assert.deepEqual(JSON.parse(s.pref.text).books[SHA_A].length, 1);
+  assert.equal(plugin.PREF, "extensions.marginalia.zotero");
+});
+
+test("step 2: with prompts the item gets the tag and one note; a new count changes the note; none takes both away", async () => {
+  const answer = { value: { ok: true, books: { [SHA_A]: 12 }, at: 1 } };
+  const s = syncSetup(answer);
+  const paper = s.Z.regular();
+  s.Z.pdf(paper, "/storage/X/a.pdf");
+  await s.p.open([paper]);
+  let r = await s.p.sync();
+  assert.deepEqual(r, { ok: true, tagged: 1, untagged: 0, notes: 1, forgotten: 0, colored: 0 });
+  assert.equal(s.fetched[0], "http://127.0.0.1:8765/api/zotero/books");
+  assert.deepEqual(paper.tags, ["Marginalia"]);
+  let notes = s.Z.notesOf(paper);
+  assert.equal(notes.length, 1);
+  assert.equal(notes[0].html, "<p>12 prompts in Marginalia</p>");
+  const saves = s.Z.saves;
+  r = await s.p.sync();                                // the same list ("at" 1): the plugin stops there
+  assert.deepEqual(r, { ok: true, unchanged: true });
+  assert.equal(s.Z.saves, saves);
+  answer.value = { ok: true, books: { [SHA_A]: 12 }, at: 2 };
+  r = await s.p.sync();                                // a newer list with the same counts: applied, nothing saved
+  assert.deepEqual(r, { ok: true, tagged: 0, untagged: 0, notes: 0, forgotten: 0, colored: 0 });
+  assert.equal(s.Z.saves, saves);
+  answer.value = { ok: true, books: { [SHA_A]: 1 }, at: 3 };
+  await s.p.sync();
+  notes = s.Z.notesOf(paper);
+  assert.deepEqual(notes.map((n) => n.html), ["<p>1 prompt in Marginalia</p>"], "the same note, changed");
+  answer.value = { ok: true, books: { [SHA_A]: 0 }, at: 4 };
+  r = await s.p.sync();
+  assert.deepEqual(r, { ok: true, tagged: 0, untagged: 1, notes: 1, forgotten: 0, colored: 0 });
+  assert.deepEqual(paper.tags, []);
+  assert.deepEqual(s.Z.notesOf(paper), [], "the note went to Zotero's trash");
+  // the book is not in the library any more: the same as no prompts; prompts again: a new note
+  answer.value = { ok: true, books: {}, at: 5 };
+  assert.equal((await s.p.sync()).untagged, 0);
+  answer.value = { ok: true, books: { [SHA_A]: 3 }, at: 6 };
+  await s.p.sync();
+  assert.deepEqual(paper.tags, ["Marginalia"]);
+  assert.deepEqual(s.Z.notesOf(paper).map((n) => n.html), ["<p>3 prompts in Marginalia</p>"]);
+});
+
+test("step 2: two PDFs of one item add up; a standalone PDF gets the tag but no note; a removed attachment is forgotten", async () => {
+  const answer = { value: { ok: true, books: { [SHA_A]: 2, [SHA_B]: 5 }, at: 1 } };
+  const s = syncSetup(answer);
+  const paper = s.Z.regular(), a = s.Z.pdf(paper, "/storage/X/a.pdf"), b = s.Z.pdf(paper, "/storage/Y/b.pdf");
+  const alone = s.Z.pdf(null, "/storage/Z/b.pdf");
+  await s.p.open([a, b, alone]);
+  await s.p.sync();
+  assert.deepEqual(s.Z.notesOf(paper).map((n) => n.html), ["<p>7 prompts in Marginalia</p>"]);
+  assert.deepEqual(alone.tags, ["Marginalia"]);
+  assert.deepEqual(s.Z.notesOf(alone), []);
+  b.deleted = true;
+  answer.value = { ok: true, books: { [SHA_A]: 2, [SHA_B]: 5 }, at: 2 };   // the next list the app says
+  const r = await s.p.sync();
+  assert.equal(r.forgotten, 1);
+  assert.deepEqual(s.Z.notesOf(paper).map((n) => n.html), ["<p>2 prompts in Marginalia</p>"]);
+  assert.deepEqual(JSON.parse(s.pref.text).books[SHA_B], [{ libraryID: 1, key: alone.key }]);
+});
+
+test("step 2: nothing changes while the app does not answer, before any open, or after the plugin was turned off", async () => {
+  const answer = { value: { ok: true, books: { [SHA_A]: 4 }, at: 1 } };
+  const s = syncSetup(answer);
+  assert.deepEqual(await s.p.sync(), { ok: false, why: "no PDF was opened in Marginalia yet" });
+  assert.deepEqual(s.fetched, [], "nothing is asked");
+  const paper = s.Z.regular();
+  s.Z.pdf(paper, "/storage/X/a.pdf");
+  await s.p.open([paper]);
+  await s.p.sync();
+  for (const bad of [new Error("connection refused"), null, { ok: false }, { ok: true, books: null }]) {
+    answer.value = bad;
+    const r = await s.p.sync();
+    assert.deepEqual(r, { ok: false, why: "the Marginalia app did not answer" }, String(bad));
+    assert.deepEqual(paper.tags, ["Marginalia"], "the tag stays while the app is closed");
+  }
+  answer.value = { ok: true, books: {}, at: 2 };
+  s.p.start();
+  assert.deepEqual(s.every.map((x) => x.ms), [plugin.SYNC_MS]);
+  assert.equal(s.later[s.later.length - 1].ms, plugin.FIRST_SYNC_MS);
+  s.p.stop();
+  assert.deepEqual(await s.p.sync(), { ok: false, why: "the plugin was turned off" });
+  assert.deepEqual(paper.tags, ["Marginalia"]);
+});
+
+test("step 2: a stored state that is not the plugin's own is read as empty, and an item that cannot be saved is left alone", async () => {
+  const answer = { value: { ok: true, books: { [SHA_A]: 4 }, at: 1 } };
+  const s = syncSetup(answer);
+  for (const junk of ["not json", "[]", JSON.stringify({ books: { short: [{ libraryID: 1, key: "X" }] }, notes: "x" })]) {
+    s.pref.text = junk;
+    assert.deepEqual(await s.p.sync(), { ok: false, why: "no PDF was opened in Marginalia yet" }, junk);
+  }
+  s.pref.text = null;
+  const paper = s.Z.regular();
+  s.Z.pdf(paper, "/storage/X/a.pdf");
+  await s.p.open([paper]);
+  paper.saveTx = async () => { throw new Error("read-only library"); };
+  const r = await s.p.sync();
+  assert.equal(r.ok, true, "one item that cannot be changed does not stop the sync");
+});
+
+test("bootstrap.js hands the plugin a file hash, the app's answer, a preference and timers, and cancels every timer", () => {
+  const boot = fs.readFileSync(path.join(ZOTERO, "bootstrap.js"), "utf8");
+  for (const k of ["sha256:", "fetchBooks:", "prefs:", "every:", "later:"]) assert.ok(boot.includes(k), k);
+  assert.match(boot, /hash\.init\(Ci\.nsICryptoHash\.SHA256\)/);
+  assert.match(boot, /Zotero\.HTTP\.request\("GET", url, \{ headers: \{ "X-Marginalia": "1" \}/);
+  assert.match(boot, /plugin\.start\(\);/);
+  assert.match(boot, /function shutdown\(\) \{\n  for \(const t of timers\) t\.cancel\(\);/);
+  assert.match(boot, /plugin\.stop\(\);/);
+  assert.equal(plugin.BOOKS_URL, "http://127.0.0.1:8765/api/zotero/books");
+});
+
+test("step 2: the tag gets Marginalia's red once per library, never over the user's colour or past Zotero's 9", async () => {
+  const answer = { value: { ok: true, books: { [SHA_A]: 1 }, at: 1 } };
+  function withTags(colors) {
+    const s = syncSetup(answer);
+    s.set = [];
+    s.Z.Tags = { MAX_COLORED_TAGS: 9, colors: new Map(colors || []),
+      getColor(lib, name) { return this.colors.get(name) || false; },
+      getColors() { return this.colors; },
+      async setColor(lib, name, color) { s.set.push([lib, name, color]); this.colors.set(name, { color, position: this.colors.size }); } };
+    return s;
+  }
+  async function opened(s) { const paper = s.Z.regular(); s.Z.pdf(paper, "/storage/X/a.pdf"); await s.p.open([paper]); return paper; }
+  const s1 = withTags();
+  await opened(s1);
+  assert.equal((await s1.p.sync()).colored, 1);
+  assert.deepEqual(s1.set, [[1, "Marginalia", "#E04A2F"]]);
+  assert.equal(plugin.TAG_COLOR, "#E04A2F");
+  // the user takes the colour away in Zotero: it stays away (each library is coloured once)
+  s1.Z.Tags.colors.delete("Marginalia");
+  answer.value = { ok: true, books: { [SHA_A]: 2 }, at: 9 };
+  assert.equal((await s1.p.sync()).colored, 0);
+  answer.value = { ok: true, books: { [SHA_A]: 1 }, at: 1 };
+  assert.deepEqual(JSON.parse(s1.pref.text).colored, [1]);
+  // a colour of the user's own stays
+  const s2 = withTags([["Marginalia", { color: "#576DD9", position: 0 }]]);
+  await opened(s2);
+  await s2.p.sync();
+  assert.deepEqual(s2.set, []);
+  // nine coloured tags already: none more
+  const s3 = withTags(Array.from({ length: 9 }, (_, i) => ["t" + i, { color: "#999999", position: i }]));
+  await opened(s3);
+  await s3.p.sync();
+  assert.deepEqual(s3.set, []);
+  // no prompts: no colour (the tag is not there)
+  const s4 = withTags();
+  answer.value = { ok: true, books: { [SHA_A]: 0 }, at: 2 };
+  await opened(s4);
+  await s4.p.sync();
+  assert.deepEqual(s4.set, []);
+  // a library where setColor fails (read-only) is not tried again, and the sync goes on
+  answer.value = { ok: true, books: { [SHA_A]: 1 }, at: 3 };
+  const s5 = withTags();
+  s5.Z.Tags.setColor = async () => { throw new Error("read-only"); };
+  await opened(s5);
+  assert.equal((await s5.p.sync()).ok, true);
+  assert.deepEqual(JSON.parse(s5.pref.text).colored, [1]);
+});
+
+test("the plugin asks every 30 seconds, and applies a list only when it is newer or a PDF was just opened", async () => {
+  assert.equal(plugin.SYNC_MS, 30000);
+  const answer = { value: { ok: true, books: { [SHA_A]: 1, [SHA_B]: 2 }, at: 7 } };
+  const s = syncSetup(answer);
+  const one = s.Z.regular();
+  s.Z.pdf(one, "/storage/X/a.pdf");
+  await s.p.open([one]);
+  assert.equal((await s.p.sync()).tagged, 1);
+  assert.deepEqual(await s.p.sync(), { ok: true, unchanged: true });
+  // another PDF opened from Zotero: the same list ("at" 7) is applied again, so the new item gets its tag at once
+  const two = s.Z.regular();
+  s.Z.pdf(two, "/storage/Y/b.pdf");
+  await s.p.open([two]);
+  const r = await s.p.sync();
+  assert.equal(r.tagged, 1);
+  assert.deepEqual(two.tags, ["Marginalia"]);
+  // a server that does not say "at" (null): every list is applied
+  answer.value = { ok: true, books: { [SHA_A]: 1, [SHA_B]: 2 }, at: null };
+  assert.equal((await s.p.sync()).ok, true);
+  assert.equal((await s.p.sync()).unchanged, undefined);
+});

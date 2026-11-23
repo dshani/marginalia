@@ -132,6 +132,8 @@ function goodCtx() {
       after: { screen: "library", hash: "#library", marker: "123", timeOrigin: 1.5 } },
     openPdf: { before: { screen: "library", collectionId: null, books: 1, marker: "123" },
       after: { screen: "reader", collectionId: p.expect.bookId, books: 1, marker: "123" }, refused: 1, waiting: 0, error: null },
+    zotero: { page: { sent: true, books: [{ sha256: p.expect.sha256, prompts: 2 }] }, status: 200,
+      body: { ok: true, books: { [p.expect.sha256]: 2 }, at: 5 }, error: null },
     appApi: { status: 200, body: { ok: true, app: true, version: "1.0.0" } },
     prepared: p,
     folders: { afterRefusals: { backupFiles: [], vaultNotes: 0 } },
@@ -157,7 +159,7 @@ test("everything as it should be: the self-test passes", () => {
   assert.deepEqual(Object.keys(v.checks).sort(), ["app-api", "app-mode", "app-only", "backup-on", "backup-write", "boot", "close-hides", "cmaps-blocked",
     "context-menu", "cover-mode", "desktop-bridge", "download", "external-links", "fonts-local", "hidden", "katex", "link-handoff", "menu",
     "mock-keychain", "no-node", "obsidian-server", "open-pdf", "pdf-restore", "pdfjs", "permissions", "persisted", "requests-local", "sample-pdf",
-    "store-idb", "tabs", "undo-redo", "welcome-card", "welcome-import", "windows"]);
+    "store-idb", "tabs", "undo-redo", "welcome-card", "welcome-import", "windows", "zotero-books"]);
   const alone = goodCtx();
   alone.handoff = null;                               // the app run by hand: no second launch, no link-handoff check
   const w = st.evaluate(goodRaw(), alone);
@@ -189,6 +191,10 @@ test("each fault fails its own check", () => {
     ["open-pdf", (r, c) => { c.openPdf.refused = 0; }],                             // the file that is no PDF got through
     ["open-pdf", (r, c) => { c.openPdf.waiting = 1; }],                             // a PDF never reached the page
     ["open-pdf", (r, c) => { c.openPdf.error = "boom"; }],
+    ["zotero-books", (r, c) => { c.zotero.status = 404; }],                           // the server has no such route
+    ["zotero-books", (r, c) => { c.zotero.body.books = {}; }],                        // the page's list never got there
+    ["zotero-books", (r, c) => { c.zotero.page.books[0].prompts = 0; c.zotero.body.books[c.prepared.expect.sha256] = 0; }],
+    ["zotero-books", (r, c) => { c.zotero.body.at = null; }],
     ["desktop-bridge", (r) => { r.desktop.reassigned = true; }],
     ["no-node", (r) => { r.nodeGlobals.require = "function"; }],
     ["pdfjs", (r) => { r.pdfjs.workerSrc = "https"; }],

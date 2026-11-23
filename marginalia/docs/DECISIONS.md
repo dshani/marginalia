@@ -246,3 +246,31 @@ D34 Open a PDF from Zotero (2026-11-23). The user: "would there be an easy way t
     (5) `marginalia app` deletes the build copy in desktop/out/ once it has installed the app. Claude found that
         macOS registers that copy again (Spotlight finds it in the project folder), so `open -b` could start it
         instead of the installed app; Claude asked, the user: "Yes, change it".
+    Step 2 (2026-11-23). The user: "yes lets go step 2". Claude asked three questions; the user chose: only
+    the items whose PDF was opened with "Open in Marginalia", only Q./A. and cloze prompts count, and the tag
+    with a count note. Built (rules in BUILD-NOTES "Zotero"):
+    (6) the plugin remembers each PDF it opens by its SHA-256 (the one the library keys a book's PDF by) and
+        its attachment, in a Zotero preference. A book added in another way gets the tag once its PDF is opened
+        from Zotero once. (4)'s "the Zotero key is not stored" holds: Marginalia never learns a Zotero key;
+    (7) in the app, the page that writes tells the app's server each book's SHA-256 and its live Q./A. and
+        cloze prompts, after boot and 2 seconds after a change; the server keeps that list in memory only, and
+        the plugin reads it (GET /api/zotero/books) 30 seconds after Zotero starts, every 5 minutes (every 30
+        seconds since (11)), and 15 and 60 seconds after an open;
+    (8) an item whose PDFs have prompts gets the tag "Marginalia" and, when it is a regular item, one child
+        note "<n> prompts in Marginalia", changed when the count changes. With no prompts (or the book deleted)
+        the tag goes and the note goes to Zotero's trash. While the app is closed nothing changes. The app is
+        1.9.0, the plugin 1.1.0.
+    (9) Changed the same day: notes count too. The user's book showed "1 prompt" in the library and got no tag,
+        because its card was a note: the library counts Q./A., cloze and notes as prompts (js/cache.js COUNTED),
+        and the note in Zotero says "<n> prompts" too. Claude proposed counting what the library counts; the
+        user: "yes, do that". Highlights still do not count.
+    (10) The tag's colour (2026-11-23). The user: "can we make it so that my zotero plug in automatically makes
+        marginalia tags colored in a certain way". Claude proposed colouring the tag only while it has none,
+        and asked which colour; the user chose Marginalia's red (#E04A2F, the app's accent). The plugin sets it
+        once in each library, and never past Zotero's nine coloured tags; a colour the user picks or takes away
+        stays. The plugin is 1.2.0.
+    (11) Asked more often (2026-11-23). The user: "is there a way to automatically update zotero's count once
+        a new prompt has been made?" The app said a change after 2 seconds, but the plugin asked only every 5
+        minutes. Claude proposed asking every 30 seconds (or a push into Zotero's own local server, which it
+        advised against); the user: "yes just ask more often. 30 seconds seems reasonable". The plugin applies
+        a list only when it is newer than the last one, or a PDF was just opened. The plugin is 1.3.0.

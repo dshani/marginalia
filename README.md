@@ -17,7 +17,7 @@ Marginalia runs on your own computer. It has no account, no server on the intern
 - **Take your data with you.** Export to Anki, Markdown or a JSON backup. Marginalia also saves a backup by itself every day.
 - **Copy an equation as LaTeX** (optional; this needs your own Anthropic API key).
 - **Copy notes into Obsidian** (optional; it is off until you turn it on).
-- **Open a PDF from Zotero** in the Mac app, with a right click (optional; a small Zotero plugin).
+- **Open a PDF from Zotero** in the Mac app, with a right click, and see in Zotero which items have prompts (optional; a small Zotero plugin).
 
 The full guide is [marginalia/README.md](marginalia/README.md).
 
@@ -116,7 +116,7 @@ Marginalia can copy your notes and prompts into an [Obsidian](https://obsidian.m
 
 ## Zotero (optional)
 
-In the Mac app, a small [Zotero](https://www.zotero.org) plugin adds **Open in Marginalia** to the right-click menu of Zotero's item list. Pack it once with `cd desktop && npm run zotero`, then install `desktop/out/Marginalia-for-Zotero.xpi` in Zotero (Tools › Plugins, the gear menu, **Install Plugin From File…**). It needs Zotero 8 or later. See "Zotero" in [desktop/README.md](desktop/README.md).
+In the Mac app, a small [Zotero](https://www.zotero.org) plugin adds **Open in Marginalia** to the right-click menu of Zotero's item list. Pack it once with `cd desktop && npm run zotero`, then install `desktop/out/Marginalia-for-Zotero.xpi` in Zotero (Tools › Plugins, the gear menu, **Install Plugin From File…**). It needs Zotero 8 or later. While the app runs, an item whose book has prompts gets the tag **Marginalia**, in Marginalia's red, and a note such as "12 prompts in Marginalia". See "Zotero" in [desktop/README.md](desktop/README.md).
 
 ## For developers
 
