@@ -78,11 +78,17 @@ test("the self-test follows the persistent-storage switch and sees the close hid
   assert.ok(!/visible: !destroyed && win\.isVisible\(\)/.test(main), "main.js no longer judges the close by isVisible() alone");
 });
 
-test("preload.js exposes only {app, version, platform} through contextBridge", () => {
+test("preload.js exposes only {app, version, platform, onOpenPdf} through contextBridge, and one ipc channel that only listens (D34)", () => {
   const pre = read("preload.js");
-  assert.match(pre, /contextBridge\.exposeInMainWorld\("marginaliaDesktop", Object\.freeze\(\{ app: true, version, platform: process\.platform \}\)\);/);
+  assert.match(pre, /contextBridge\.exposeInMainWorld\("marginaliaDesktop", Object\.freeze\(\{ app: true, version, platform: process\.platform, onOpenPdf \}\)\);/);
   assert.equal((pre.match(/exposeInMainWorld/g) || []).length, 1);
-  assert.ok(!/ipcRenderer|require\("(?!electron")/.test(pre));
+  assert.ok(!/require\("(?!electron")/.test(pre));
+  // the page can only listen: no send, invoke, postMessage or sendSync, and the one channel is lib/openfile.js's
+  assert.deepEqual(pre.match(/ipcRenderer\.\w+/g), ["ipcRenderer.on"]);
+  assert.match(pre, /const CHANNEL = "marginalia:open-pdf";/);
+  assert.equal(require("../lib/openfile").CHANNEL, "marginalia:open-pdf");
+  assert.equal(require("../lib/openfile").MAX_WAITING, 8);
+  assert.match(pre, /const MAX_WAITING = 8;/);
 });
 
 test("an offline build stops before packaging when Electron is not in .cache/electron, and names it (R3)", () => {

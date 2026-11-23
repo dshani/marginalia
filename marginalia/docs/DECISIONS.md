@@ -222,3 +222,27 @@ D33 Undo and redo for cards (2026-11-18). The user: "Is there a way to add undo/
         review answers have no undo here. Claude's choice, told to the user: the Edit menu of the Mac app is
         unchanged, so its Undo and Redo, clicked with the pointer, act on text only; the keys do both. The
         app is 1.7.0.
+
+D34 Open a PDF from Zotero (2026-11-23). The user: "would there be an easy way to link this app with zotero?",
+    and then: "ideally im able to have a right click option in zotero to open the pdf in marginalia, and then
+    theres some kind of link from zotero to the note cards i create or some kind of record of marginalia note
+    cards in zotero". Claude proposed two steps: (1) "Open in Marginalia" in Zotero's right-click menu, (2) a
+    record in Zotero that a book has cards (the user: "i dont need a link to each card, i just want some kind
+    of evidence that cards exist"; Claude proposed a tag). The user: "maybe we do this first?" for step 1, and
+    "Yes, build it" to its one channel. Built (rules in BUILD-NOTES "Zotero"):
+    (1) the Mac app opens a PDF that macOS hands it: Finder's Open With lists it as an alternative (it never
+        becomes the Mac's default app for PDFs), and `open -b local.marginalia.desktop <file>` works. The
+        window in front adds it as a dropped PDF and opens it in the reader; a PDF that is already in the
+        library opens its book, so nothing is added twice. A file that is no PDF is refused with a notice;
+    (2) the app's preload gets its first ipc channel, from the app to the page only: it carries the name and
+        the bytes of such a PDF, never its place on the disk. The page cannot send anything through it;
+    (3) Marginalia for Zotero, a Zotero plugin in desktop/zotero/ (Zotero 8 to 10; `npm run zotero` packs it
+        into desktop/out/Marginalia-for-Zotero.xpi, which the user installs in Zotero): "Open in Marginalia"
+        on an item with a PDF, or on a PDF, opens it through `open -b`. A regular item gives its best PDF
+        attachment, as a double-click in Zotero does. At most 20 at once;
+    (4) Claude's choices, told to the user: the plugin lives in desktop/ with the Mac app it needs, its tests
+        run with the desktop tests, and the Zotero key is not stored yet: step 2 needs it, and step 2 is not
+        built. Step 2 waits for the user's word. The app is 1.8.0;
+    (5) `marginalia app` deletes the build copy in desktop/out/ once it has installed the app. Claude found that
+        macOS registers that copy again (Spotlight finds it in the project folder), so `open -b` could start it
+        instead of the installed app; Claude asked, the user: "Yes, change it".

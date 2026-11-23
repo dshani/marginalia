@@ -657,3 +657,68 @@ describe("index.html and css/desktop.css (FEATURES E2.2; BUILD-NOTES \"CSS owner
     assert.match(rule(libCss, ".lib-welcome"), /background:\s*var\(--surface\)/);
   });
 });
+
+/* ------------------------------------------------------------------ PDFs that macOS hands the app (DECISIONS D34) */
+
+describe("M.desktop: a PDF that macOS hands the app is added as a dropped PDF (DECISIONS D34)", () => {
+  // window.marginaliaDesktop as the app's preload makes it, with onOpenPdf taking the page's one handler
+  function appBridge() {
+    const b = { handlers: [] };
+    b.api = Object.freeze({ app: true, version: "1.8.0", platform: "darwin",
+      onOpenPdf: (fn) => { if (typeof fn !== "function" || b.handlers.length) return false; b.handlers.push(fn); return true; } });
+    return b;
+  }
+  function withLibrary(env, opts) {
+    const o = opts || {};
+    env.added = [];
+    let booted;
+    env.boot = new Promise((r) => { booted = r; });
+    env.finishBoot = () => booted(true);
+    env.win.File = class { constructor(parts, name, init) { this.parts = parts; this.name = name; this.type = init && init.type; } };
+    env.M.app.boot = () => env.boot;
+    env.M.library.addPdf = (file) => {
+      env.added.push({ name: file.name, type: file.type, bytes: Array.from(file.parts[0]) });
+      if (o.fail) return Promise.reject(Object.assign(new Error("Not a PDF"), { code: "not_pdf" }));
+      return new Promise((r) => setTimeout(() => r({ id: "book_" + env.added.length }), 5));
+    };
+    return env;
+  }
+
+  test("start() in the app binds onOpenPdf once; a browser page has nothing to bind", async () => {
+    const b = appBridge();
+    const env = page({ app: b.api });
+    await env.D.start();
+    await env.D.start();
+    assert.equal(b.handlers.length, 1);
+    const plainApp = page({ app: true });                 // an older preload with no onOpenPdf: nothing breaks
+    assert.equal(await plainApp.D.start(), "app");
+  });
+
+  test("a PDF that comes during boot waits for it, then goes to M.library.addPdf with its name and bytes; several go one after the other", async () => {
+    const b = appBridge();
+    const env = withLibrary(page({ app: b.api }));
+    await env.D.start();
+    const send = b.handlers[0];
+    const u8 = (s) => new Uint8Array(Buffer.from(s));
+    const one = send("Smith 2020.pdf", u8("%PDF-1.7 one"));
+    const two = send("", u8("%PDF-1.7 two"));
+    await settle();
+    assert.deepEqual(env.added, [], "nothing before the library has booted");
+    env.finishBoot();
+    await Promise.all([one, two].map((p) => p || Promise.resolve()));
+    await wait(30);
+    assert.deepEqual(env.added.map((a) => a.name), ["Smith 2020.pdf", "document.pdf"]);
+    assert.deepEqual(env.added.map((a) => a.type), ["application/pdf", "application/pdf"]);
+    assert.equal(Buffer.from(env.added[0].bytes).toString(), "%PDF-1.7 one");
+  });
+
+  test("openPdf never rejects: addPdf's own error (it shows its notice) and bytes that are no Uint8Array leave the page as it is", async () => {
+    const env = withLibrary(page({ app: true }), { fail: true });
+    env.finishBoot();
+    assert.equal(await env.D.openPdf("x.pdf", new Uint8Array([1, 2])), null);
+    assert.equal(env.added.length, 1);
+    assert.equal(await env.D.openPdf("y.pdf", "not bytes"), null);
+    assert.equal(env.added.length, 1, "no File is made of something that is no bytes");
+    assert.deepEqual(env.logs, [], "addPdf's error is its own (a notice), not a page error");
+  });
+});

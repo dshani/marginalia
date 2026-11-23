@@ -1,0 +1,14 @@
+{
+  "manifest_version": 2,
+  "name": "Marginalia for Zotero",
+  "version": "1.0.0",
+  "description": "Open in Marginalia: opens an item's PDF in the Marginalia Mac app",
+  "applications": {
+    "zotero": {
+      "id": "{70c6655c-714e-4bab-acfa-223d00179c0b}",
+      "update_url": "https://example.invalid/marginalia-for-zotero/updates.json",
+      "strict_min_version": "8.0",
+      "strict_max_version": "10.*"
+    }
+  }
+}

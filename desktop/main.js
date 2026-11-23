@@ -15,6 +15,7 @@ const contextmenu = require("./lib/contextmenu");
 const hashes = require("./lib/hash");
 const lifecycle = require("./lib/lifecycle");
 const menu = require("./lib/menu");
+const openfile = require("./lib/openfile");
 const policy = require("./lib/policy");
 const python = require("./lib/python");
 const selftest = require("./lib/selftest");
@@ -79,7 +80,7 @@ const STATE_FILE = path.join(USER_DATA, "window-state.json");
 const MAX_WINDOWS = policy.MAX_WINDOWS;
 const state = {
   log: null, python: null, server: null, serverReady: false, serverDown: false, win: null, wins: new Map(), merging: false,
-  pendingHash: null, quitting: false, quitFront: null, stoppingForQuit: false, dialogOpen: false, crashed: false, saveTimer: null,
+  pendingHash: null, pendingPdfs: [], refusedFiles: 0, quitting: false, quitFront: null, stoppingForQuit: false, dialogOpen: false, crashed: false, saveTimer: null,
   tail: [], lastInputAt: 0,
   // self-test records
   requests: [], externalOpens: [], downloads: [], permissions: [], consoleErrors: [], contextMenus: [], handedOverHashes: [],
@@ -103,6 +104,47 @@ app.on("open-url", (event, url) => {
   openHash(hashes.hashFromOpenUrl(url));
 });
 if (opts.urls.length) state.pendingHash = hashes.hashFromOpenUrl(opts.urls[opts.urls.length - 1]);
+
+// ---- PDFs that macOS hands the app (DECISIONS D34) ------------------------------------------------------------------
+// Finder's Open With, `open -b local.marginalia.desktop <file>` and Zotero's "Open in Marginalia" (zotero/) send a PDF's
+// path as "open-file", also before the app is ready (it then waits for the window). lib/openfile.js reads and checks
+// it; the window in front gets its name and bytes on the one ipc channel (preload.js, main → page only), and its page
+// adds it as a dropped PDF (js/desktop.js): a PDF already in the library opens its book.
+app.on("open-file", (event, file) => {
+  event.preventDefault();
+  openPdf(file);
+});
+
+function openPdf(file) {
+  const got = openfile.readPdf(file, fs);
+  if (!got.ok) {
+    state.refusedFiles++;
+    log("did not open a file macOS handed over: " + got.why);
+    if (!SELF_TEST && app.isReady()) {
+      dialog.showMessageBox(theWindow() || undefined, { type: "warning", message: "Marginalia could not open “" + openfile.nameOf(String(file || "")) + "”",
+        detail: "Marginalia opens PDF files only: " + got.why + ".", buttons: ["OK"], defaultId: 0, noLink: true }).catch(() => null);
+    }
+    return;
+  }
+  if (state.pendingPdfs.length >= openfile.MAX_WAITING) { log("dropped a PDF macOS handed over: " + openfile.MAX_WAITING + " wait already"); return; }
+  log("a PDF was handed over (" + got.bytes.length + " bytes)");
+  state.pendingPdfs.push({ name: got.name, bytes: got.bytes });
+  flushPdfs();
+}
+
+// The PDFs that wait go to the window in front once its page has loaded and is not loading another one
+// (did-finish-load and did-stop-loading call this again); with no window at all (it was destroyed) a new one opens for
+// them. Not info.healthy: that flag is for onServerBack's reload, and a navigation the app refuses can leave it false
+// on a page that works.
+function flushPdfs() {
+  if (!state.pendingPdfs.length) return;
+  const win = theWindow();
+  if (!win && state.serverReady && !state.serverDown && !state.quitting && !SELF_TEST) { createWindow(); return; }
+  const info = infoOf(win);
+  if (!win || !info || !info.loaded || info.closing || win.webContents.isLoading()) return;
+  for (const m of state.pendingPdfs.splice(0)) win.webContents.send(openfile.CHANNEL, m);
+  focusWindow();
+}
 app.whenReady().then(() => (acquireLock() ? start() : null)).catch(crash);
 
 // One app per userData folder (set above): Electron's single-instance lock, taken once the app is ready. When another
@@ -619,7 +661,7 @@ function createWindow(o) {
       additionalArguments: [VERSION_ARG + app.getVersion()]
     }
   });
-  const info = { w: extra ? extra.w : null, healthy: false, healthBefore: null, closing: false };
+  const info = { w: extra ? extra.w : null, healthy: false, healthBefore: null, closing: false, loaded: false };
   state.wins.set(win, info);
   state.win = win;
   // (a window that was made visible gives no "show" event to listen for: the self-test's "hidden" check counts it here)
@@ -667,14 +709,16 @@ function createWindow(o) {
   wc.on("did-fail-provisional-load", (event, code, description, url, isMainFrame) => {
     if (isMainFrame && code === -3 && info.healthBefore !== null) { info.healthy = info.healthBefore; info.healthBefore = null; }
   });
-  wc.on("did-finish-load", () => { info.healthy = true; info.healthBefore = null; });
+  wc.on("did-finish-load", () => { info.healthy = true; info.healthBefore = null; info.loaded = true; flushPdfs(); });
+  wc.on("did-stop-loading", () => flushPdfs());
   wc.on("did-fail-load", (event, code, description, url, isMainFrame) => {
     if (!isMainFrame || code === -3) return;             // -3: aborted by a newer navigation
     info.healthy = false;
     info.healthBefore = null;
+    info.loaded = false;
     log("the page did not load (" + code + " " + description + ")");
   });
-  wc.on("render-process-gone", (event, details) => onRendererGone(win, details));
+  wc.on("render-process-gone", (event, details) => { info.loaded = false; onRendererGone(win, details); });
   wc.on("context-menu", (event, params) => showContextMenu(win, params));
   // The user's own clicks and key presses in this window (not in Developer Tools) let one outside open through.
   wc.on("input-event", (event, input) => { if (policy.activatesUser(input && input.type)) state.lastInputAt = Date.now(); });
@@ -841,6 +885,7 @@ async function runSelfTest(win) {
   const extra = { contextMenus: await probeContextMenus(wc, raw && raw.targets), prepared, folders };
   await probeOpenAfterInput(wc);
   extra.handoff = await probeHandoff(wc);
+  extra.openPdf = await probeOpenPdf(wc);
   extra.tabs = await probeTabs(wc);
   extra.windows = await probeWindows(win);
   extra.appApi = await probeAppApi();
@@ -1046,6 +1091,33 @@ async function probeHandoff(wc) {
   return { hashes: state.handedOverHashes.slice(), applied: true, before, after };
 }
 
+// DECISIONS D34: macOS hands the app the web copy's test/sample.pdf (the book the import restored) and a file that is
+// no PDF (index.html), as Zotero's "Open in Marginalia" does through `open -b`: the first opens its book in the reader
+// with no book added, the second is refused in the main process and never reaches the page.
+async function probeOpenPdf(wc) {
+  const look = "(() => { const M = window.Marginalia, c = M.app.current(); return { screen: c.screen, collectionId: c.collectionId, " +
+    "books: M.cache.collections().filter((x) => x && x.kind === 'book' && !x.deletedAt).length, " +
+    "marker: window.__marginaliaSelfTestMarker || null }; })()";
+  try {
+    await wc.executeJavaScript("window.Marginalia.app.route('library')");
+    await delay(300);
+    const before = await wc.executeJavaScript(look);
+    const refusedBefore = state.refusedFiles;
+    const ev = { preventDefault() {} };
+    app.emit("open-file", ev, path.join(WEB_DIR, "index.html"));
+    app.emit("open-file", ev, path.join(WEB_DIR, ...selftest.SAMPLE_PDF.split("/")));
+    let after = null;
+    for (let i = 0; i < 100; i++) {
+      await delay(100);
+      try { after = await wc.executeJavaScript(look); } catch (e) { after = null; }
+      if (after && after.screen === "reader") break;
+    }
+    const front = theWindow(), info = infoOf(front);
+    return { before, after, refused: state.refusedFiles - refusedBefore, waiting: state.pendingPdfs.length,
+      front: { same: front === wc.getOwnerBrowserWindow(), loaded: info ? info.loaded : null, closing: info ? info.closing : null }, error: null };
+  } catch (e) { return { before: null, after: null, refused: null, waiting: state.pendingPdfs.length, error: String(e && e.message ? e.message : e) }; }
+}
+
 function backupFiles() {
   try { return fs.readdirSync(opts.backupDir).filter((n) => /^marginalia-backup-\d{4}-\d{2}-\d{2}\.json$/.test(n)); }
   catch (e) { return []; }
@@ -1080,6 +1152,7 @@ function finishSelfTest(raw, error, extra) {
       expectedAccelerators: menu.accelerators(menu.buildTemplate({})),
       contextMenus: extra ? extra.contextMenus : null,
       handoff: extra ? extra.handoff : null,
+      openPdf: extra ? extra.openPdf : null,
       appApi: extra ? extra.appApi : null,
       prepared: extra ? extra.prepared : null,
       folders: extra ? extra.folders : null,

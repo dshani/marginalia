@@ -50,7 +50,9 @@ function makeElectron(dir) {
   app.getVersion = () => PKG.version;
   app.isPackaged = false;
   app.whenReady = () => readyPromise;
-  app.ready = () => ready();
+  app.readyCalled = false;
+  app.ready = () => { app.readyCalled = true; ready(); };
+  app.isReady = () => app.readyCalled;
   app.requestSingleInstanceLock = () => true;
   app.setAboutPanelOptions = () => {};
   app.focusCalls = [];
@@ -81,7 +83,9 @@ function makeElectron(dir) {
 
   class FakeWebContents extends EventEmitter {
     constructor(win) { super(); this.win = win; this.url = ""; this.loads = []; this.destroyed = false; this.reloads = 0; this.session = { addWordToSpellCheckerDictionary() {} };
-      this.scripts = []; this.answer = null; }
+      this.scripts = []; this.answer = null; this.messages = []; }
+    send(channel, msg) { this.messages.push({ channel, msg }); }
+    isLoading() { return !!this.loading; }
     setWindowOpenHandler(fn) { this.openHandler = fn; }
     getURL() { return this.url; }
     isDestroyed() { return this.destroyed; }
@@ -1158,4 +1162,58 @@ test("a link, a reload and the Dock icon never go to a window that is destroyed,
   windowItem(m, "New Tab").click();
   await tick();
   assert.equal(two.webContents.scripts.length, 0, "no command goes to the window that is gone");
+});
+
+// ---- PDFs that macOS hands the app (DECISIONS D34) ---------------------------------------------------------------------
+function pdfFiles(m) {
+  const pdf = path.join(m.dir, "Paper (2024).pdf"), other = path.join(m.dir, "notes.txt");
+  fs.writeFileSync(pdf, "%PDF-1.7\n" + "x".repeat(100));
+  fs.writeFileSync(other, "not a pdf");
+  return { pdf, other };
+}
+
+test("open-file before the app is ready waits for the window's page, which then gets the PDF's name and bytes", async (t) => {
+  const m = loadMain(t);
+  const { pdf } = pdfFiles(m);
+  const ev = event();
+  m.app.emit("open-file", ev, pdf);
+  assert.equal(ev.defaultPrevented, true, "macOS is told the app took the file");
+  const win = await started(m);
+  assert.deepEqual(win.webContents.messages, [], "not before the page has loaded");
+  win.webContents.emit("did-finish-load");
+  assert.equal(win.webContents.messages.length, 1);
+  const { channel, msg } = win.webContents.messages[0];
+  assert.equal(channel, "marginalia:open-pdf");
+  assert.deepEqual(Object.keys(msg).sort(), ["bytes", "name"], "the page never learns where the file is");
+  assert.equal(msg.name, "Paper (2024).pdf");
+  assert.equal(Buffer.from(msg.bytes).toString("latin1").slice(0, 8), "%PDF-1.7");
+  win.webContents.emit("did-finish-load");
+  assert.equal(win.webContents.messages.length, 1, "each PDF goes to the page once");
+  // while the page loads another document, a PDF waits for it (the old page would lose it)
+  win.webContents.loading = true;
+  m.app.emit("open-file", event(), pdf);
+  assert.equal(win.webContents.messages.length, 1);
+  win.webContents.loading = false;
+  win.webContents.emit("did-stop-loading");
+  assert.equal(win.webContents.messages.length, 2);
+});
+
+test("open-file on a running app: the PDF goes to the window in front and shows it; a file that is no PDF is refused with a notice", async (t) => {
+  const m = loadMain(t);
+  const { pdf, other } = pdfFiles(m);
+  const win = await started(m);
+  win.webContents.emit("did-finish-load");
+  win.close();                                          // closed (hidden) first: a PDF brings it back
+  assert.equal(win.isVisible(), false);
+  m.app.emit("open-file", event(), pdf);
+  assert.equal(win.webContents.messages.length, 1);
+  assert.equal(win.isVisible(), true);
+  const shown = m.electron.dialogs.length;
+  for (const bad of [other, path.join(m.dir, "missing.pdf"), m.dir, "relative.pdf"]) {
+    m.app.emit("open-file", event(), bad);
+  }
+  assert.equal(win.webContents.messages.length, 1, "nothing that is no PDF reaches the page");
+  assert.equal(m.electron.dialogs.length - shown, 4, "each refusal says so");
+  assert.match(m.electron.dialogs[shown][1].message, /could not open “notes\.txt”/);
+  assert.equal(m.app.windows.length, 1, "a PDF never opens a second window");
 });

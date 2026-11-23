@@ -37,8 +37,10 @@ marginalia               # open it
   `out/previous/Marginalia.app`, while an older copy there waits beside it as `Marginalia.app.old`; (3) renames the
   new copy to `/Applications/Marginalia.app` (one rename in the same folder). Only then the older previous copy is
   deleted, the app is registered with macOS (`lsregister -f`), and the build copy and the previous copy are
-  unregistered (`lsregister -u`), so `marginalia://` links always open the installed app;
-- ends with "Installed Marginalia 1.7.0. Open it with: marginalia". On any failure the installed app and the previous
+  unregistered (`lsregister -u`), so `marginalia://` links always open the installed app. Then the build copy in
+  `out/` is deleted: macOS registers it again when Spotlight finds it, and Zotero's "Open in Marginalia" (`open -b`)
+  could then start that copy instead of the installed one;
+- ends with "Installed Marginalia 1.8.0. Open it with: marginalia". On any failure the installed app and the previous
   copy stay as they were and the exit code is 1; Ctrl+C or closing the Terminal window while it installs puts
   everything back too ("Stopped before the new app was in place, so the installed app was left as it was."). What a
   `kill -9` or a power cut leaves (`Marginalia.app.new`, `Marginalia.app.old`) is cleared by the next run.
@@ -184,7 +186,8 @@ update.
 
 ## Run a build copy by hand
 
-`marginalia` opens the installed app. A build copy in `out/` opened by hand would use your real library folder, vault
+`marginalia` opens the installed app. A build copy in `out/` (`npm run app` leaves one; `marginalia app` deletes it once it
+has installed it) opened by hand would use your real library folder, vault
 and backup folder, would need port 8765 (where the installed app runs its server), and macOS would start sending
 `marginalia://` links to it. To look at one without any of that, give it throwaway folders and another port:
 
@@ -308,6 +311,23 @@ Folders must be absolute paths, written `--flag=value`. Without flags the app us
   selected text Copy and Look Up; on a picture or a canvas Copy Image. Nothing else: no Back, Reload, Save, Print or
   Inspect, and no menu where none of these applies.
 
+## Zotero
+
+Marginalia for Zotero (`zotero/`, DECISIONS D34) adds **Open in Marginalia** to the right-click menu of Zotero's item
+list. On an item with a PDF, or on the PDF itself, it opens that PDF in the app: a new PDF becomes a book, a PDF that
+is already in the library opens its book. A regular item gives its best PDF attachment, as a double-click in Zotero
+does; at most 20 items at once. It needs Zotero 8 or later and the installed app.
+
+```bash
+npm run zotero          # writes out/Marginalia-for-Zotero.xpi
+```
+
+In Zotero: Tools › Plugins, the gear menu, **Install Plugin From File…**, and choose that file. The plugin asks macOS
+to open each file in the app (`open -b local.marginalia.desktop <file>`), as Finder's Open With does; the app also
+appears in Open With for every PDF, without becoming the default app for PDFs. The app reads the file in its main
+process, refuses anything that is not a PDF, and hands the window in front only its name and its bytes on the one ipc
+channel, from the app to the page (BUILD-NOTES "Zotero"). Nothing else goes from Zotero to Marginalia.
+
 ## Where things live
 
 | What | Where |
@@ -358,12 +378,14 @@ node --test                        # the shell's own tests (no Electron needed; 
 node scripts/selftest.js [app]     # the packaged app's self-test (npm run app runs it too)
 ```
 
-`node --test` (186 tests) covers flags and the self-test guard (also against this disk: firmlink names, letter case,
+`node --test` (204 tests) covers flags and the self-test guard (also against this disk: firmlink names, letter case,
 Unicode forms, symlinks, a changed HOME), the link, permission, click-before-opening and request rules,
 `marginalia://` hashes (against `js/app.js`'s own `parseHash`), the python3 search, window placement, the rotating log,
 the menu (against `../marginalia/js/keys.js`), the right-click menu, the server (a real `serve.py` with a throwaway
 vault: start, stop, the guard that ends it when its app is killed, a taken port ending with exit code 1, and a server
-started with `--app` refusing a POST without the header), the CDN rewrite, SRI and lock checks (with a stand-in
+started with `--app` refusing a POST without the header), a PDF that macOS hands the app
+(`test/openfile.test.js`, and `open-file` in `test/main.test.js`), Marginalia for Zotero and its .xpi
+(`test/zotero.test.js`), the CDN rewrite, SRI and lock checks (with a stand-in
 download), the self-test's verdict (also with the persistent-storage switch off) and its close probe (it must see the
 window's `hide()` run, with stand-in windows and with `main.js`'s own close handler), the runner's LaunchServices and
 defaults rules, the icon, the signing rules (`test/signing.test.js`), what closing the window does
@@ -469,7 +491,8 @@ failed, and prints every check with its detail.
 | @electron/packager | 20.3.0 (brings @electron/osx-sign 2.7.2, @electron/get 5.1.0, @electron/asar 4.3.1) |
 | @electron/fuses | 2.1.3 |
 | PDF.js / KaTeX / Outfit | 3.11.174 / 0.16.47 / Google Fonts v15 (from the web app's `index.html`; pinned in `vendor-lock.json`) |
-| the app | 1.7.0 (`package.json`'s `version`; the server gets it as `--app 1.7.0`) |
+| the app | 1.8.0 (`package.json`'s `version`; the server gets it as `--app 1.8.0`) |
+| Marginalia for Zotero | 1.0.0 (`zotero/manifest.json`'s `version`), for Zotero 8 to 10 |
 | built and tested with | macOS 26.6.2 (arm64), Node 23.7.0, npm 10.9.2, Python 3.14.7 (`/opt/homebrew/bin/python3`) |
 
 All three packages are exact pins in `devDependencies`; the app itself has no npm dependency (only Electron's and
@@ -478,6 +501,11 @@ under @electron/asar 4.3.1, used by @electron/packager 20.3.0 and @electron/univ
 app, and the only fix npm offers is a downgrade to @electron/packager 18.4.4, so it is left as is.
 
 ## Known limits
+
+- **Marginalia for Zotero is checked in Zotero 10 only.** In Zotero 10.0.9, "Open in Marginalia" opens the PDF in
+  the installed app. Its tests run its rules with stand-ins for Zotero's items and menus, and the self-test hands the
+  packaged app a PDF as macOS would. Not yet checked: Zotero 8 and 9, several items at once, a PDF that is not
+  downloaded, and the app closed when the command comes. Zotero does not yet show that a book has cards in Marginalia (D34, step 2).
 
 - **Undo and Redo in the Edit menu act on text only.** Cmd+Z and Shift+Cmd+Z undo and redo the last change to a
   card when no text field has the focus (DECISIONS D33, BUILD-NOTES "Undo and redo"): the page takes the two keys

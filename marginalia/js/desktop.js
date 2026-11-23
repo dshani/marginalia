@@ -108,6 +108,7 @@
       moved: null,             // {at, file}: the move's backup, as this page remembers it when storage refuses (repair F1)
       persist: null,           // the persistent-storage ask (a promise), once
       appBound: false,         // the welcome card's focus / visibility listeners
+      pdfs: Promise.resolve(), // the PDFs macOS handed the app (D34), added one after the other
       dismissed: false,        // the welcome card was dismissed in this page (storage may refuse the flag)
       importing: false,        // the welcome card's import runs
       latest: null,            // {name, at}: the newest backup's file name and time (GET /api/backup/latest)
@@ -729,6 +730,7 @@
   function bindApp() {
     if (st.appBound) return;
     st.appBound = true;
+    bindOpenPdf();
     try { if (typeof root.addEventListener === "function") root.addEventListener("focus", refreshWelcome); } catch (e) { /* ignore */ }
     try {
       var d = root.document;
@@ -736,6 +738,31 @@
         d.addEventListener("visibilitychange", function () { if (d.visibilityState === "visible") refreshWelcome(); });
       }
     } catch (e) { /* ignore */ }
+  }
+  // ---------------------------------------------------------------- PDFs from macOS (DECISIONS D34)
+  // window.marginaliaDesktop.onOpenPdf (the app's preload; its one ipc channel, from the app to the page only): a PDF
+  // that macOS handed the app (Finder's Open With, Zotero's "Open in Marginalia") comes as (name, bytes). Once the
+  // library has booted it is added as a dropped PDF, one after the other: M.library.addPdf opens the book in the
+  // reader, and a PDF already in the library opens its book (nothing is added twice). addPdf shows its own errors.
+  function bindOpenPdf() {
+    var d = null;
+    try { d = root.marginaliaDesktop; } catch (e) { d = null; }
+    if (!d || typeof d.onOpenPdf !== "function") return;
+    try { d.onOpenPdf(openPdf); } catch (e) { report("onOpenPdf", e); }
+  }
+  // openPdf(name, bytes) → Promise<the book | null>; never rejects.
+  function openPdf(name, bytes) {
+    var p = st.pdfs.then(function () {
+      var A = M.app;
+      return Promise.resolve(A && typeof A.boot === "function" ? A.boot() : null);
+    }).then(function () {
+      var L = M.library, F = root.File;
+      if (!L || typeof L.addPdf !== "function" || typeof F !== "function") return null;
+      if (!bytes || typeof ArrayBuffer === "undefined" || !ArrayBuffer.isView(bytes)) return null;
+      return L.addPdf(new F([bytes], str(name) || "document.pdf", { type: "application/pdf" }));
+    }).then(null, function (e) { if (!(e && e.code)) report("openPdf", e); return null; });
+    st.pdfs = p;
+    return p;
   }
   function importReason(e) {
     var code = e && e.code;
@@ -813,6 +840,7 @@
     welcome: welcome,
     importLatest: importLatest,
     dismissWelcome: dismissWelcome,
+    openPdf: openPdf,
     // pure helpers
     _pure: { whenText: whenText, dayLabel: dayLabel, hhmm: hhmm, madeAt: madeAt },
     CLIENT_HEADER: CLIENT_HEADER,
@@ -871,6 +899,8 @@
  * importLatest() → Promise<{ok, report, error}> (M.backup.latest → M.exporter.importJSON(text, {restoreSettings: true}) →
  * M.backup.idle() → toast "Paste your Anthropic API key again in Settings → LaTeX from snips (backups never contain it).";
  * a file named after the server's today is refused; errors toast "Could not import the newest backup — <reason>");
- * dismissWelcome() → true (localStorage "marginalia.welcomeDismissed" = "1"); event "desktop:state" (state()); constants
+ * dismissWelcome() → true (localStorage "marginalia.welcomeDismissed" = "1"); openPdf(name, bytes) → Promise<book|null> (D34:
+ * a PDF macOS handed the app, through window.marginaliaDesktop.onOpenPdf, which start() binds in app mode: after
+ * M.app.boot(), M.library.addPdf(new File([bytes], name)), one after the other; never rejects); event "desktop:state" (state()); constants
  * CLIENT_HEADER, APP_CLIENT, MOVE_CLIENT, CHECK_MS, WELCOME_KEY, MOVED_KEY, MODES, TEXT; _pure {whenText, dayLabel, hhmm,
  * madeAt}; test hooks _setFetch, _setOpener, _setCheckMs, _setNow, _reset. */
