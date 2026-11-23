@@ -282,6 +282,7 @@ function checkVersion(version) {
 async function main() {
   if (process.platform !== "darwin" || process.arch !== "arm64") throw new Error("this build makes the arm64 Mac app and runs on an arm64 Mac");
   const t0 = Date.now();
+  require("./selftest").refuseProjectInApplications(require("node:os").userInfo().homedir);   // before anything is built
   checkVersion(PKG.version);
   const sign = signingIdentity();                      // before anything is built: a bad sign-identity stops it at once
   if (OFFLINE) checkOfflineElectron(path.join(CACHE, "electron"), electronVersion());

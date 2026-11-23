@@ -5,7 +5,7 @@
 //   node scripts/selftest.js [path/to/Marginalia.app] [--keep] [--json <file>]
 //
 //   - refuses an installed app (one in /Applications or ~/Applications, under any of its names: symlinks, other letter
-//     case, /System/Volumes/Data) and a changed $HOME (the app's own guard would refuse it too);
+//     case, /System/Volumes/Data), a project folder that lies there itself (not supported) and a changed $HOME (the app's own guard would refuse it too);
 //   - makes a temp folder (in $TMPDIR) holding user-data/, obsidian-sandbox/ and backups/, and picks a free port
 //     (never 8765, 8791 or 8792);
 //   - starts <app>/Contents/MacOS/Marginalia --self-test --user-data-dir=… --port=… --obsidian-sandbox=… --backup-dir=…
@@ -34,6 +34,7 @@ const args = require("../lib/args");
 
 const LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
 const RESERVED_PORTS = new Set([8765, 8791, 8792]);
+const PROJECT_DIR = path.resolve(__dirname, "..", "..");   // the folder that holds marginalia/ and desktop/
 const BUNDLE_ID = "local.marginalia.desktop";       // scripts/build.js BUNDLE_ID
 const TIMEOUT_MS = 180000;
 const STARTUP_DEFAULTS = Object.freeze(["AppleTextDirection", "NSForceRightToLeftWritingDirection", "NSTreatUnknownArgumentsAsOpen"]);
@@ -179,12 +180,25 @@ function detailText(detail) {
   try { return String(JSON.stringify(detail === undefined ? null : detail)).slice(0, 400); } catch (e) { return String(detail).slice(0, 400); }
 }
 
+// Throws when the project folder (`dir`, default the one holding desktop/) lies in /Applications or ~/Applications:
+// not supported, since its build copy in desktop/out would be there too, and the self-test never runs an app from
+// there (it cannot tell it from an installed one). The build calls this before step 1.
+function refuseProjectInApplications(home, dir) {
+  const project = dir || PROJECT_DIR;
+  const roots = ["/Applications", path.join(home, "Applications")];
+  if (!args.insideAny(project, roots, fs)) return;
+  throw new Error("this project folder is inside an Applications folder (" + project + "), and that is not supported: " +
+    "the self-test never runs an app from /Applications or ~/Applications, so it cannot test the build there. " +
+    "Move the project folder somewhere else, such as ~/Projects/marginalia, and run marginalia app again.");
+}
+
 // Throws when this is no build copy to test: an installed app, or a run with a changed $HOME.
 function refuseToRun(app, env) {
   const home = env.home;
   if (!args.homeIsAccountHome(env.envHome, home, fs)) {
     throw new Error("the self-test runs only with the real HOME (HOME is " + JSON.stringify(env.envHome) + ", this account's home folder is " + home + ")");
   }
+  refuseProjectInApplications(home, env.projectDir);
   if (args.insideAny(app, ["/Applications", path.join(home, "Applications")], fs)) {
     throw new Error("the self-test runs a build copy, never an installed app: " + app);
   }
@@ -281,5 +295,5 @@ if (require.main === module) {
     (e) => { process.stderr.write("[self-test] error: " + (e && e.message) + "\n"); process.exitCode = 1; });
 }
 
-module.exports = { runSelfTest, freePort, listedUnder, lsregisterListed, bundlesOf, unregisterAll, keychainItemExists, refuseToRun,
+module.exports = { runSelfTest, freePort, listedUnder, lsregisterListed, bundlesOf, unregisterAll, keychainItemExists, refuseToRun, refuseProjectInApplications,
   defaultsKeys, onlyStartupDefaults, detailText, LSREGISTER, STARTUP_DEFAULTS, BUNDLE_ID };

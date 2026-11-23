@@ -38,7 +38,7 @@ Marginalia is made and tested on macOS (macOS 26, Python 3.13 and 3.14, Node.js 
 
 You build the app on your own Mac. This takes a few minutes and needs the internet once.
 
-1. Get the code. On the GitHub page, click **Code**, then **Download ZIP**, and unpack the file. With git: `git clone`, then the address of this repository.
+1. Get the code. On the GitHub page, click **Code**, then **Download ZIP**, and unpack the file. With git: `git clone`, then the address of this repository. Keep the project folder outside `/Applications` and `~/Applications` (for example in `~/Projects`): the build refuses to run there.
 2. Open Terminal and go to the project folder.
 3. Install the build tools, once:
 
@@ -137,6 +137,7 @@ The code comments and the documents cite labels such as `FEATURES P1.3`, `repair
 ## Known limits
 
 - **The Mac app builds only on a Mac with an Apple chip.** On an Intel Mac, use Marginalia in a browser.
+- **The project folder cannot be in `/Applications` or `~/Applications`.** The self-test never runs an app from those folders, so that it never touches an installed copy, and the build would land there too. `marginalia app` stops at once and says so; move the folder elsewhere.
 - **Not checked**: Windows and Linux (the browser version is plain Python and JavaScript, but nobody has tried it there), Safari, Firefox, and Python older than 3.13 (this includes Apple's own Python 3.9 in `/usr/bin`).
 - **Obsidian's Live Preview shows two comment lines around each note** that Marginalia writes (`<!-- marginalia:… -->`). The reading view hides them. Marginalia needs these lines to update a note in place.
 - **Apple did not sign the app.** You build it yourself, so macOS starts it without a warning. There is no ready-made download.

@@ -448,8 +448,8 @@ disk says, device and inode, not only by how the path is written), or runs throu
 Note: Chromium itself creates the `--user-data-dir` folder before the app's code can refuse, so never pass a real
 folder there.
 
-`scripts/selftest.js` refuses an installed app (in `/Applications` or `~/Applications`, under any of its names) and a
-changed `HOME`, makes the throwaway folders in `$TMPDIR` and a free port, runs the self-test, starts a second app on
+`scripts/selftest.js` refuses an installed app (in `/Applications` or `~/Applications`, under any of its names), a
+project folder inside one of those (not supported; the build checks this before it starts) and a changed `HOME`, makes the throwaway folders in `$TMPDIR` and a free port, runs the self-test, starts a second app on
 the same data folder while the first runs with that one link (it must step aside, the first must log that it got 1
 link, and the link-handoff check must pass), then unregisters that build copy and its helper apps from LaunchServices
 (`lsregister -u`; macOS registers a helper on its own when it writes a crash report for it, so `marginalia://` never
