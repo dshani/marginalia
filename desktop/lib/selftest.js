@@ -97,7 +97,7 @@
 //                     same page, with no book added and nothing left waiting
 //   zotero-books      (D34, step 2) the page's books and prompts (M.desktop.zoteroBooks(), sent with sendZotero) are
 //                     what the app's server answers on GET /api/zotero/books, the imported book among them with
-//                     prompts
+//                     prompts and as the book its PDF's link opens (links)
 const SAMPLE_PDF = "test/sample.pdf";
 const EXTERNAL_TEST_URL = "https://example.invalid/marginalia-self-test";   // .invalid never resolves (RFC 2606)
 const NO_INPUT_VIAS = ["window.open", "anchor", "navigation"];
@@ -953,10 +953,11 @@ function evaluate(raw, ctx) {
   put("open-pdf", !op.error && !!ex.bookId && ob.screen === "library" && oa.screen === "reader" && oa.collectionId === ex.bookId &&
     oa.books === ob.books && ob.books >= 1 && !!oa.marker && oa.marker === ob.marker && op.refused === 1 && op.waiting === 0, c.openPdf || null);
   const zt = c.zotero || {}, zp = zt.page || {}, zb = zt.body || {};
-  const pageBooks = {};
-  (Array.isArray(zp.books) ? zp.books : []).forEach((b) => { pageBooks[b.sha256] = b.prompts; });
+  const pageBooks = {}, pageLinks = {};
+  (Array.isArray(zp.books) ? zp.books : []).forEach((b) => { pageBooks[b.sha256] = b.prompts; pageLinks[b.sha256] = b.book; });
   put("zotero-books", !zt.error && zt.status === 200 && zb.ok === true && Number.isInteger(zb.at) && !!ex.sha256 &&
-    pageBooks[ex.sha256] >= 1 && JSON.stringify(zb.books) === JSON.stringify(pageBooks), c.zotero || null);
+    pageBooks[ex.sha256] >= 1 && JSON.stringify(zb.books) === JSON.stringify(pageBooks) &&
+    !!zb.links && zb.links[ex.sha256] === ex.bookId && JSON.stringify(zb.links) === JSON.stringify(pageLinks), c.zotero || null);
   if (r.errors && r.errors.length) put("page-errors", false, r.errors);
   const ok = Object.keys(checks).every((k) => checks[k].ok);
   return { ok, checks };

@@ -40,7 +40,7 @@ marginalia               # open it
   unregistered (`lsregister -u`), so `marginalia://` links always open the installed app. Then the build copy in
   `out/` is deleted: macOS registers it again when Spotlight finds it, and Zotero's "Open in Marginalia" (`open -b`)
   could then start that copy instead of the installed one;
-- ends with "Installed Marginalia 1.9.0. Open it with: marginalia". On any failure the installed app and the previous
+- ends with "Installed Marginalia 1.10.0. Open it with: marginalia". On any failure the installed app and the previous
   copy stay as they were and the exit code is 1; Ctrl+C or closing the Terminal window while it installs puts
   everything back too ("Stopped before the new app was in place, so the installed app was left as it was."). What a
   `kill -9` or a power cut leaves (`Marginalia.app.new`, `Marginalia.app.old`) is cleared by the next run.
@@ -329,11 +329,13 @@ process, refuses anything that is not a PDF, and hands the window in front only 
 channel, from the app to the page (BUILD-NOTES "Zotero"). Nothing else goes from Zotero to Marginalia.
 
 While the app runs, Zotero also shows which of those items have prompts in Marginalia: an item whose book has prompts
-(as the library counts them: Q./A., cloze and notes, not highlights) gets the tag **Marginalia** and one child note such as "12 prompts in Marginalia" (a PDF without a
-parent item gets the tag only). The plugin gives the tag Marginalia's red (`#E04A2F`) once in each library where it
+(as the library counts them: Q./A., cloze and notes, not highlights) gets the tag **Marginalia** and one child link
+such as "12 prompts in Marginalia". Double-click to open the book, or the library if the app only reports a count.
+A PDF without a parent item gets the tag only. The plugin gives the tag Marginalia's red (`#E04A2F`) once in each library where it
 has no colour yet, so the items show a red dot in the item list and the tag pane can filter by it; a colour you pick
-or take away in Zotero stays, and a library that has Zotero's nine coloured tags already keeps a plain one. When the book has no prompts any more, or is deleted, the tag goes and the note goes to Zotero's trash. This
+or take away in Zotero stays, and a library that has Zotero's nine coloured tags already keeps a plain one. When the book has no prompts any more, or is deleted, the tag goes and the link goes to Zotero's trash. This
 works for the items whose PDF you opened with Open in Marginalia: the plugin remembers each such PDF by its SHA-256.
+On sync the plugin moves its old note to Zotero's trash after saving the link.
 The app's server holds the list of the library's books and their prompts in memory (`/api/zotero/books`, only the
 app's own page can change it); the plugin reads it every 30 seconds (and changes something in Zotero only when the list changed), and shortly after
 an open. While the app is closed nothing changes in Zotero.
@@ -388,14 +390,14 @@ node --test                        # the shell's own tests (no Electron needed; 
 node scripts/selftest.js [app]     # the packaged app's self-test (npm run app runs it too)
 ```
 
-`node --test` (212 tests) covers flags and the self-test guard (also against this disk: firmlink names, letter case,
+`node --test` (215 tests) covers flags and the self-test guard (also against this disk: firmlink names, letter case,
 Unicode forms, symlinks, a changed HOME), the link, permission, click-before-opening and request rules,
 `marginalia://` hashes (against `js/app.js`'s own `parseHash`), the python3 search, window placement, the rotating log,
 the menu (against `../marginalia/js/keys.js`), the right-click menu, the server (a real `serve.py` with a throwaway
 vault: start, stop, the guard that ends it when its app is killed, a taken port ending with exit code 1, and a server
 started with `--app` refusing a POST without the header), a PDF that macOS hands the app
 (`test/openfile.test.js`, and `open-file` in `test/main.test.js`), Marginalia for Zotero (its open, its tag
-and note with a stand-in Zotero library) and its .xpi (`test/zotero.test.js`), the CDN rewrite, SRI and lock checks (with a stand-in
+and link with a stand-in Zotero library) and its .xpi (`test/zotero.test.js`), the CDN rewrite, SRI and lock checks (with a stand-in
 download), the self-test's verdict (also with the persistent-storage switch off) and its close probe (it must see the
 window's `hide()` run, with stand-in windows and with `main.js`'s own close handler), the runner's LaunchServices and
 defaults rules, the icon, the signing rules (`test/signing.test.js`), what closing the window does
@@ -501,8 +503,8 @@ failed, and prints every check with its detail.
 | @electron/packager | 20.3.0 (brings @electron/osx-sign 2.7.2, @electron/get 5.1.0, @electron/asar 4.3.1) |
 | @electron/fuses | 2.1.3 |
 | PDF.js / KaTeX / Outfit | 3.11.174 / 0.16.47 / Google Fonts v15 (from the web app's `index.html`; pinned in `vendor-lock.json`) |
-| the app | 1.9.0 (`package.json`'s `version`; the server gets it as `--app 1.9.0`) |
-| Marginalia for Zotero | 1.3.0 (`zotero/manifest.json`'s `version`), for Zotero 8 to 10 |
+| the app | 1.10.0 (`package.json`'s `version`; the server gets it as `--app 1.10.0`) |
+| Marginalia for Zotero | 1.5.0 (`zotero/manifest.json`'s `version`), for Zotero 8 to 10 |
 | built and tested with | macOS 26.6.2 (arm64), Node 23.7.0, npm 10.9.2, Python 3.14.7 (`/opt/homebrew/bin/python3`) |
 
 All three packages are exact pins in `devDependencies`; the app itself has no npm dependency (only Electron's and
@@ -516,7 +518,7 @@ app, and the only fix npm offers is a downgrade to @electron/packager 18.4.4, so
   the installed app. Its tests run its rules with stand-ins for Zotero's items and menus, and the self-test hands the
   packaged app a PDF as macOS would. Not yet checked: Zotero 8 and 9, several items at once, a PDF that is not
   downloaded, and the app closed when the command comes. The tag, its colour and the note (1.9.0, plugin 1.2.0) work in Zotero
-  10.0.9; not yet checked there: a tag taken away when a book loses its last prompt, and a group library. Zotero does not yet show that a book has cards in Marginalia (D34, step 2).
+  10.0.9. Tests for the new link and migration use a stand-in Zotero library.
 
 - **Undo and Redo in the Edit menu act on text only.** Cmd+Z and Shift+Cmd+Z undo and redo the last change to a
   card when no text field has the focus (DECISIONS D33, BUILD-NOTES "Undo and redo"): the page takes the two keys

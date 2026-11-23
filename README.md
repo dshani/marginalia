@@ -116,7 +116,7 @@ Marginalia can copy your notes and prompts into an [Obsidian](https://obsidian.m
 
 ## Zotero (optional)
 
-In the Mac app, a small [Zotero](https://www.zotero.org) plugin adds **Open in Marginalia** to the right-click menu of Zotero's item list. Pack it once with `cd desktop && npm run zotero`, then install `desktop/out/Marginalia-for-Zotero.xpi` in Zotero (Tools › Plugins, the gear menu, **Install Plugin From File…**). It needs Zotero 8 or later. While the app runs, an item whose book has prompts gets the tag **Marginalia**, in Marginalia's red, and a note such as "12 prompts in Marginalia". See "Zotero" in [desktop/README.md](desktop/README.md).
+In the Mac app, a small [Zotero](https://www.zotero.org) plugin adds **Open in Marginalia** to the right-click menu of Zotero's item list. Pack it once with `cd desktop && npm run zotero`, then install `desktop/out/Marginalia-for-Zotero.xpi` in Zotero (Tools › Plugins, the gear menu, **Install Plugin From File…**). It needs Zotero 8 or later. While the app runs, an item whose book has prompts gets the tag **Marginalia**, in Marginalia's red, and a child link such as "12 prompts in Marginalia" that opens the book on a double-click. See "Zotero" in [desktop/README.md](desktop/README.md).
 
 ## For developers
 

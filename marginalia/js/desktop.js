@@ -790,23 +790,34 @@
     try { if (st.zoteroTimer != null) root.clearTimeout(st.zoteroTimer); } catch (e) { /* ignore */ }
     try { st.zoteroTimer = root.setTimeout(function () { st.zoteroTimer = null; sendZotero(); }, zoteroWait); } catch (e) { st.zoteroTimer = null; }
   }
-  // zoteroBooks() → [{sha256, prompts}] by SHA-256 (lower case), or null without the cache
+  // zoteroBooks() → [{sha256, prompts, book}] by SHA-256 (lower case), or null without the cache. `book` is the id of
+  // the book a link from Zotero opens (D34 (12)): of the books of that PDF, the one with the most prompts; on a tie
+  // the shorter id (the first book, not a separate copy: js/library.js gives those "<fingerprint>:<8 hex>"), then the
+  // first by id.
   function zoteroBooks() {
     var C = M.cache;
     if (!C || typeof C.collections !== "function" || typeof C.prompts !== "function") return null;
-    var shaOf = {}, counts = {};
+    var shaOf = {}, perBook = {}, counts = {}, best = {};
     (C.collections() || []).forEach(function (c) {
-      if (!c || c.kind !== "book" || c.deletedAt != null || !SHA256_RE.test(str(c.sha256))) return;
+      if (!c || c.kind !== "book" || c.deletedAt != null || !SHA256_RE.test(str(c.sha256)) || !str(c.id)) return;
       var sha = str(c.sha256).toLowerCase();
       shaOf[c.id] = sha;
+      perBook[c.id] = 0;
       if (!counts.hasOwnProperty(sha)) counts[sha] = 0;
     });
     (C.prompts() || []).forEach(function (p) {
       if (!p || p.deletedAt != null || ZOTERO_KINDS.indexOf(p.kind) < 0) return;
       var sha = shaOf.hasOwnProperty(p.collectionId) ? shaOf[p.collectionId] : null;
-      if (sha) counts[sha]++;
+      if (!sha) return;
+      counts[sha]++;
+      perBook[p.collectionId]++;
     });
-    return Object.keys(counts).sort().map(function (sha) { return { sha256: sha, prompts: counts[sha] }; });
+    Object.keys(shaOf).forEach(function (id) {
+      var sha = shaOf[id], b = best[sha];
+      if (b === undefined || perBook[id] > perBook[b] || (perBook[id] === perBook[b] && (id.length < b.length ||
+        (id.length === b.length && id < b)))) best[sha] = id;
+    });
+    return Object.keys(counts).sort().map(function (sha) { return { sha256: sha, prompts: counts[sha], book: best[sha] }; });
   }
   // sendZotero() → Promise<true (sent) | false (nothing to send, or not now) | null (failed)>; never rejects
   function sendZotero() {
@@ -967,7 +978,8 @@
  * dismissWelcome() → true (localStorage "marginalia.welcomeDismissed" = "1"); openPdf(name, bytes) → Promise<book|null> (D34:
  * a PDF macOS handed the app, through window.marginaliaDesktop.onOpenPdf, which start() binds in app mode: after
  * M.app.boot(), M.library.addPdf(new File([bytes], name)), one after the other; never rejects); zoteroBooks() →
- * [{sha256, prompts}]|null (D34 step 2: each live book with a SHA-256, its live "qa" and "cloze" prompts, by SHA-256);
+ * [{sha256, prompts, book}]|null (D34 step 2: by SHA-256, the live "qa", "cloze" and "note" prompts of its live books,
+ * and `book` the id of the one with the most, the shorter id on a tie, for Zotero's link to it);
  * sendZotero() → Promise<true|false|null> (app mode, the writing page only: POST /api/zotero/books {books} with
  * headers(), unless the server took that very list last; app mode binds it after boot and 2 s after the last
  * prompt / collection / import / store:writer event; never rejects); event "desktop:state" (state()); constants

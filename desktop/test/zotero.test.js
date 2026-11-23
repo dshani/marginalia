@@ -161,8 +161,7 @@ test("the .xpi is a zip of exactly the plugin's files, stored, the same bytes ea
   assert.throws(() => pack.entries(copy), /lacks what Zotero requires: applications\.zotero\.update_url/);
 });
 
-// ---- step 2 (D34): the tag and the note ----------------------------------------------------------------------------
-// A Zotero library with tags and child notes: items by libraryID and key, saveTx() counted, notes made with new Item("note").
+// ---- step 2 (D34): the tag and the linked attachment ---------------------------------------------------------------
 function libraryZotero() {
   const items = new Map(), byKey = new Map();
   let next = 1;
@@ -173,18 +172,28 @@ function libraryZotero() {
     it.hasTag = (t) => it.tags.includes(t);
     it.addTag = (t) => { if (!it.tags.includes(t)) it.tags.push(t); };
     it.removeTag = (t) => { it.tags = it.tags.filter((x) => x !== t); };
-    it.saveTx = async () => { Z.saves++; if (!items.has(it.id)) { items.set(it.id, it); byKey.set(it.libraryID + "/" + it.key, it); } return it.id; };
+    it.saveTx = async () => { Z.saves++; return it.id; };
     items.set(it.id, it);
     byKey.set(it.libraryID + "/" + it.key, it);
     return it;
   }
-  Z.Items = { get: (id) => items.get(id) || false, getByLibraryAndKey: (lib, key) => byKey.get(lib + "/" + key) || false };
-  Z.Item = function (type) {
-    const it = { itemType: type, isPDFAttachment: () => false, isRegularItem: () => false, html: null };
-    it.setNote = (h) => { it.html = h; };
-    it.id = next++; it.libraryID = 1; it.key = "N" + String(it.id).padStart(7, "0"); it.deleted = false; it.tags = [];
-    it.saveTx = async () => { Z.saves++; items.set(it.id, it); byKey.set(it.libraryID + "/" + it.key, it); it.parentItemID = it.parentID; return it.id; };
-    return it;
+  Z.Items = {
+    get: (id) => items.get(id) || false,
+    getByLibraryAndKey: (lib, key) => byKey.get(lib + "/" + key) || false,
+    trashTx: async (id) => { items.get(id).deleted = true; Z.saves++; }
+  };
+  Z.Attachments = {
+    LINK_MODE_LINKED_URL: 3,
+    linkFromURL: async ({ parentItemID, title, url }) => {
+      const fields = { title, url };
+      const attachment = add({
+        parentItemID, libraryID: items.get(parentItemID).libraryID, attachmentLinkMode: Z.Attachments.LINK_MODE_LINKED_URL,
+        isPDFAttachment: () => false, isRegularItem: () => false,
+        getField: (field) => fields[field], setField: (field, value) => { fields[field] = value; }
+      });
+      await attachment.saveTx();
+      return attachment;
+    }
   };
   Z.regular = () => add({ isPDFAttachment: () => false, isRegularItem: () => true, getAttachments: () => [] });
   Z.pdf = (parent, file) => {
@@ -193,7 +202,9 @@ function libraryZotero() {
     if (parent) { const prev = parent.getAttachments(); parent.getAttachments = () => prev.concat([it.id]); parent.getBestAttachment = async () => it; }
     return it;
   };
-  Z.notesOf = (parent) => Array.from(items.values()).filter((x) => x.itemType === "note" && x.parentID === parent.id && !x.deleted);
+  Z.note = (parent, html) => add({ libraryID: parent.libraryID, parentItemID: parent.id, isNote: () => true, html });
+  Z.linksOf = (parent) => Array.from(items.values()).filter((x) =>
+    x.attachmentLinkMode === Z.Attachments.LINK_MODE_LINKED_URL && x.parentItemID === parent.id && !x.deleted);
   return Z;
 }
 function syncSetup(answer) {
@@ -223,60 +234,71 @@ test("step 2: an open remembers each PDF by its SHA-256 with its attachment, and
   assert.equal(plugin.PREF, "extensions.marginalia.zotero");
 });
 
-test("step 2: with prompts the item gets the tag and one note; a new count changes the note; none takes both away", async () => {
-  const answer = { value: { ok: true, books: { [SHA_A]: 12 }, at: 1 } };
+test("step 2: the item gets the tag and a link, and the count changes its title", async () => {
+  const answer = { value: { ok: true, books: { [SHA_A]: 12 }, links: { [SHA_A]: "book-a" }, at: 1 } };
   const s = syncSetup(answer);
   const paper = s.Z.regular();
   s.Z.pdf(paper, "/storage/X/a.pdf");
   await s.p.open([paper]);
   let r = await s.p.sync();
-  assert.deepEqual(r, { ok: true, tagged: 1, untagged: 0, notes: 1, forgotten: 0, colored: 0 });
+  assert.deepEqual(r, { ok: true, tagged: 1, untagged: 0, links: 1, forgotten: 0, colored: 0 });
   assert.equal(s.fetched[0], "http://127.0.0.1:8765/api/zotero/books");
   assert.deepEqual(paper.tags, ["Marginalia"]);
-  let notes = s.Z.notesOf(paper);
-  assert.equal(notes.length, 1);
-  assert.equal(notes[0].html, "<p>12 prompts in Marginalia</p>");
+  const links = s.Z.linksOf(paper);
+  assert.equal(links.length, 1);
+  const [child] = links;
+  assert.equal(child.getField("title"), "12 prompts in Marginalia");
+  assert.equal(child.getField("url"), "marginalia://open?hash=%23reader%2Fbook-a");
   const saves = s.Z.saves;
   r = await s.p.sync();                                // the same list ("at" 1): the plugin stops there
   assert.deepEqual(r, { ok: true, unchanged: true });
   assert.equal(s.Z.saves, saves);
-  answer.value = { ok: true, books: { [SHA_A]: 12 }, at: 2 };
+  answer.value = { ...answer.value, at: 2 };
   r = await s.p.sync();                                // a newer list with the same counts: applied, nothing saved
-  assert.deepEqual(r, { ok: true, tagged: 0, untagged: 0, notes: 0, forgotten: 0, colored: 0 });
+  assert.deepEqual(r, { ok: true, tagged: 0, untagged: 0, links: 0, forgotten: 0, colored: 0 });
   assert.equal(s.Z.saves, saves);
-  answer.value = { ok: true, books: { [SHA_A]: 1 }, at: 3 };
+  answer.value = { ...answer.value, books: { [SHA_A]: 1 }, at: 3 };
   await s.p.sync();
-  notes = s.Z.notesOf(paper);
-  assert.deepEqual(notes.map((n) => n.html), ["<p>1 prompt in Marginalia</p>"], "the same note, changed");
+  assert.deepEqual(s.Z.linksOf(paper), [child]);
+  assert.equal(child.getField("title"), "1 prompt in Marginalia");
   answer.value = { ok: true, books: { [SHA_A]: 0 }, at: 4 };
   r = await s.p.sync();
-  assert.deepEqual(r, { ok: true, tagged: 0, untagged: 1, notes: 1, forgotten: 0, colored: 0 });
+  assert.deepEqual(r, { ok: true, tagged: 0, untagged: 1, links: 1, forgotten: 0, colored: 0 });
   assert.deepEqual(paper.tags, []);
-  assert.deepEqual(s.Z.notesOf(paper), [], "the note went to Zotero's trash");
-  // the book is not in the library any more: the same as no prompts; prompts again: a new note
+  assert.deepEqual(s.Z.linksOf(paper), []);
+  assert.equal(child.deleted, true);
+  // the book is not in the library any more: the same as no prompts; prompts again: a new link
   answer.value = { ok: true, books: {}, at: 5 };
   assert.equal((await s.p.sync()).untagged, 0);
   answer.value = { ok: true, books: { [SHA_A]: 3 }, at: 6 };
   await s.p.sync();
   assert.deepEqual(paper.tags, ["Marginalia"]);
-  assert.deepEqual(s.Z.notesOf(paper).map((n) => n.html), ["<p>3 prompts in Marginalia</p>"]);
+  const [next] = s.Z.linksOf(paper);
+  assert.equal(next.getField("title"), "3 prompts in Marginalia");
+  assert.equal(next.getField("url"), "marginalia://open?hash=%23library", "an app that only reports counts");
 });
 
-test("step 2: two PDFs of one item add up; a standalone PDF gets the tag but no note; a removed attachment is forgotten", async () => {
-  const answer = { value: { ok: true, books: { [SHA_A]: 2, [SHA_B]: 5 }, at: 1 } };
+test("step 2: two PDFs of one item add up and the one with the most prompts gives the link", async () => {
+  const answer = { value: { ok: true, books: { [SHA_A]: 2, [SHA_B]: 5 }, links: { [SHA_A]: "book-a", [SHA_B]: "book-b" }, at: 1 } };
   const s = syncSetup(answer);
   const paper = s.Z.regular(), a = s.Z.pdf(paper, "/storage/X/a.pdf"), b = s.Z.pdf(paper, "/storage/Y/b.pdf");
   const alone = s.Z.pdf(null, "/storage/Z/b.pdf");
   await s.p.open([a, b, alone]);
   await s.p.sync();
-  assert.deepEqual(s.Z.notesOf(paper).map((n) => n.html), ["<p>7 prompts in Marginalia</p>"]);
+  const [child] = s.Z.linksOf(paper);
+  assert.equal(child.getField("title"), "7 prompts in Marginalia");
+  assert.equal(child.getField("url"), plugin.bookLink("book-b"));
   assert.deepEqual(alone.tags, ["Marginalia"]);
-  assert.deepEqual(s.Z.notesOf(alone), []);
+  assert.deepEqual(s.Z.linksOf(alone), []);
+  answer.value = { ...answer.value, books: { [SHA_A]: 5, [SHA_B]: 2 }, at: 2 };
+  assert.equal((await s.p.sync()).links, 1, "the destination changes even when the total is the same");
+  assert.deepEqual(s.Z.linksOf(paper), [child]);
+  assert.equal(child.getField("url"), plugin.bookLink("book-a"));
   b.deleted = true;
-  answer.value = { ok: true, books: { [SHA_A]: 2, [SHA_B]: 5 }, at: 2 };   // the next list the app says
+  answer.value = { ...answer.value, at: 3 };            // the next list the app says
   const r = await s.p.sync();
   assert.equal(r.forgotten, 1);
-  assert.deepEqual(s.Z.notesOf(paper).map((n) => n.html), ["<p>2 prompts in Marginalia</p>"]);
+  assert.equal(child.getField("title"), "5 prompts in Marginalia");
   assert.deepEqual(JSON.parse(s.pref.text).books[SHA_B], [{ libraryID: 1, key: alone.key }]);
 });
 
@@ -399,4 +421,55 @@ test("the plugin asks every 30 seconds, and applies a list only when it is newer
   answer.value = { ok: true, books: { [SHA_A]: 1, [SHA_B]: 2 }, at: null };
   assert.equal((await s.p.sync()).ok, true);
   assert.equal((await s.p.sync()).unchanged, undefined);
+});
+
+test("the attachment URL resolves to the book in Marginalia's reader", () => {
+  const hash = require("../lib/hash");
+  for (const id of ["0123abcd", "f".repeat(32) + ":1a2b3c4d", "a b&c\"<é>"]) {
+    const link = plugin.bookLink(id);
+    assert.ok(link.startsWith("marginalia://open?hash="), link);
+    assert.equal(hash.hashFromOpenUrl(link), "#reader/" + encodeURIComponent(id), id);
+  }
+  for (const bad of ["", ".", "..", "a/b", "a\u0000", 5, null, "x".repeat(401)]) assert.equal(plugin.bookLink(bad), null, String(bad));
+});
+
+test("step 2: the old note moves to trash after the link is saved, without creating a second link on retry", async () => {
+  const answer = { value: { ok: true, books: { [SHA_A]: 5 }, links: { [SHA_A]: "book-a" }, at: 1 } };
+  const s = syncSetup(answer);
+  const paper = s.Z.regular();
+  await s.p.open([s.Z.pdf(paper, "/storage/X/a.pdf")]);
+  const html = '<p><a href="' + plugin.bookLink("book-a") + '">5 prompts in Marginalia</a></p>';
+  const note = s.Z.note(paper, html), userNote = s.Z.note(paper, html);
+  const state = JSON.parse(s.pref.text);
+  state.notes = { [paper.libraryID + "/" + paper.key]: { key: note.key, prompts: 5, html } };
+  s.pref.text = JSON.stringify(state);
+  const trashTx = s.Z.Items.trashTx;
+  s.Z.Items.trashTx = async () => { throw new Error("trash failed"); };
+  assert.equal((await s.p.sync()).links, 1);
+  const [child] = s.Z.linksOf(paper);
+  assert.equal(note.deleted, false);
+  s.Z.Items.trashTx = trashTx;
+  await s.p.sync();
+  assert.deepEqual(s.Z.linksOf(paper), [child]);
+  assert.equal(note.deleted, true);
+  assert.equal(userNote.deleted, false);
+});
+
+test("step 2: opening a PDF during sync preserves the saved attachment key and the newly remembered PDF", async () => {
+  const books = { ok: true, books: { [SHA_A]: 2, [SHA_B]: 5 }, at: 1 };
+  let finishSync;
+  const answer = { value: () => new Promise((resolve) => { finishSync = resolve; }) };
+  const s = syncSetup(answer);
+  const first = s.Z.regular(), second = s.Z.regular();
+  await s.p.open([s.Z.pdf(first, "/storage/X/a.pdf")]);
+  const sync = s.p.sync();
+  const open = s.p.open([s.Z.pdf(second, "/storage/Y/b.pdf")]);
+  await new Promise((resolve) => setImmediate(resolve));
+  finishSync(books);
+  await Promise.all([sync, open]);
+  const [child] = s.Z.linksOf(first);
+  answer.value = books;
+  assert.equal((await s.p.sync()).links, 1);
+  assert.deepEqual(s.Z.linksOf(first), [child]);
+  assert.equal(s.Z.linksOf(second).length, 1);
 });

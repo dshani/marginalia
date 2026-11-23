@@ -206,8 +206,8 @@ shows up in Finder's Open With for every PDF.
 
 Zotero then shows which of those items have prompts: while the app runs, such an item gets the tag **Marginalia** (in
 Marginalia's red, unless you give it another colour)
-and a note such as "12 prompts in Marginalia" (it counts what the library counts as prompts: Q./A., cloze and notes, not highlights). The tag
-goes when the book has no prompts any more.
+and a child link such as "12 prompts in Marginalia". Double-click to open the book in the app. The count includes
+Q./A., cloze and notes. The tag and link go when the book has no prompts any more.
 
 ## Export and import
 

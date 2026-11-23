@@ -4778,6 +4778,7 @@ class ZoteroApiTest(unittest.TestCase):
         status, payload = self.got()
         self.assertEqual(status, 200)
         self.assertEqual(payload["books"], {self.A: 5, self.B.lower(): 0}, "lower case; a SHA-256 twice adds up")
+        self.assertEqual(payload["links"], {}, "no book ids given: none")
         self.assertIsInstance(payload["at"], int)
         _, headers, _, _ = http_request(self.app_port, "GET", serve.ZOTERO_PATH)
         self.assertEqual((headers.get("cache-control"), headers.get("x-content-type-options")), ("no-store", "nosniff"))
@@ -4787,6 +4788,19 @@ class ZoteroApiTest(unittest.TestCase):
         self.assertEqual(self.got()[1]["books"], {self.B.lower(): 1})
         self.assertEqual(self.put([])[0], 200)
         self.assertEqual(self.got()[1]["books"], {})
+
+    def test_each_pdf_has_the_book_a_link_opens(self):
+        sep = "f" * 32 + ":1a2b3c4d"                    # a separate book's id (js/library.js)
+        self.assertEqual(self.put([{"sha256": self.A, "prompts": 2, "book": "f" * 32},
+                                   {"sha256": self.A, "prompts": 1, "book": sep},
+                                   {"sha256": self.B, "prompts": 0, "book": "x y é"}])[0], 200)
+        payload = self.got()[1]
+        self.assertEqual(payload["books"], {self.A: 3, self.B.lower(): 0})
+        self.assertEqual(payload["links"], {self.A: "f" * 32, self.B.lower(): "x y é"}, "the first id of a SHA-256")
+        for bad in ("", ".", "..", "a/b", "a\nb", "a\x00", 5, "x" * (serve.MAX_ZOTERO_ID + 1)):
+            status = self.put([{"sha256": self.A, "prompts": 1, "book": bad}])[0]
+            self.assertEqual(status, 400, repr(bad))
+        self.assertEqual(self.got()[1]["links"], {self.A: "f" * 32, self.B.lower(): "x y é"}, "a refusal keeps the list")
 
     def test_a_bad_list_is_refused_and_keeps_what_was_there(self):
         self.assertEqual(self.put([{"sha256": self.A, "prompts": 4}])[0], 200)

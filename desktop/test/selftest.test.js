@@ -132,8 +132,8 @@ function goodCtx() {
       after: { screen: "library", hash: "#library", marker: "123", timeOrigin: 1.5 } },
     openPdf: { before: { screen: "library", collectionId: null, books: 1, marker: "123" },
       after: { screen: "reader", collectionId: p.expect.bookId, books: 1, marker: "123" }, refused: 1, waiting: 0, error: null },
-    zotero: { page: { sent: true, books: [{ sha256: p.expect.sha256, prompts: 2 }] }, status: 200,
-      body: { ok: true, books: { [p.expect.sha256]: 2 }, at: 5 }, error: null },
+    zotero: { page: { sent: true, books: [{ sha256: p.expect.sha256, prompts: 2, book: p.expect.bookId }] }, status: 200,
+      body: { ok: true, books: { [p.expect.sha256]: 2 }, links: { [p.expect.sha256]: p.expect.bookId }, at: 5 }, error: null },
     appApi: { status: 200, body: { ok: true, app: true, version: "1.0.0" } },
     prepared: p,
     folders: { afterRefusals: { backupFiles: [], vaultNotes: 0 } },
@@ -195,6 +195,8 @@ test("each fault fails its own check", () => {
     ["zotero-books", (r, c) => { c.zotero.body.books = {}; }],                        // the page's list never got there
     ["zotero-books", (r, c) => { c.zotero.page.books[0].prompts = 0; c.zotero.body.books[c.prepared.expect.sha256] = 0; }],
     ["zotero-books", (r, c) => { c.zotero.body.at = null; }],
+    ["zotero-books", (r, c) => { c.zotero.body.links = {}; }],                        // no link to the book
+    ["zotero-books", (r, c) => { c.zotero.body.links[c.prepared.expect.sha256] = "another"; c.zotero.page.books[0].book = "another"; }],
     ["desktop-bridge", (r) => { r.desktop.reassigned = true; }],
     ["no-node", (r) => { r.nodeGlobals.require = "function"; }],
     ["pdfjs", (r) => { r.pdfjs.workerSrc = "https"; }],

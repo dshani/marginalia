@@ -274,3 +274,12 @@ D34 Open a PDF from Zotero (2026-11-23). The user: "would there be an easy way t
         minutes. Claude proposed asking every 30 seconds (or a push into Zotero's own local server, which it
         advised against); the user: "yes just ask more often. 30 seconds seems reasonable". The plugin applies
         a list only when it is newer than the last one, or a PDF was just opened. The plugin is 1.3.0.
+    (12) The note links to the book (2026-11-23). The user: "can we make the child notes a link to the file on
+        marginalia instead of just a note in zotero". Claude found that Zotero hands a non-web link clicked in
+        a note to macOS (Zotero.launchURL), so the note's text became a marginalia:// link that opens the book
+        in the app's reader, as Obsidian's "Open in Marginalia" links do. The page also sends each PDF's book
+        id (the book of that PDF with the most prompts; on a tie the first book, not a separate copy). The app
+        is 1.10.0, the plugin 1.4.0.
+    (13) The child item opens the app directly (2026-11-23). Plugin 1.5.0 uses a Zotero linked-URL attachment
+        titled with the prompt count. Double-click opens the book in Marginalia, or the library if an older
+        app supplies only counts. On sync the plugin saves the new attachment and moves its old note to Trash.

@@ -746,7 +746,18 @@ describe("M.desktop: in the app, the page that writes tells the server each book
   test("zoteroBooks: each live book's live prompts as the library counts them (Q./A., cloze, notes), by SHA-256", () => {
     const env = page(Object.assign({ app: true }, library()));
     // b1: a Q./A., a cloze and a note (not its highlight, not its deleted prompt); b3, a second book of b1's PDF: one
-    assert.deepEqual(plain(env.D.zoteroBooks()), [{ sha256: SHA, prompts: 4 }, { sha256: SHA2.toLowerCase(), prompts: 0 }]);
+    // the link goes to b1, the book of that PDF with the most prompts
+    assert.deepEqual(plain(env.D.zoteroBooks()), [{ sha256: SHA, prompts: 4, book: "b1" }, { sha256: SHA2.toLowerCase(), prompts: 0, book: "b2" }]);
+  });
+
+  test("zoteroBooks: the link goes to the book of a PDF with the most prompts; on a tie, the first book, not a separate copy", () => {
+    const copy = SHA + ":1a2b3c4d";
+    const env = page({ app: true, collections: [book(copy), book("zz")], prompts: [] });
+    assert.equal(env.D.zoteroBooks()[0].book, "zz", "no prompts anywhere: the shorter id");
+    env.prompts.push(prompt("q1", copy));
+    assert.equal(env.D.zoteroBooks()[0].book, copy, "the separate copy has the prompt");
+    env.prompts.push(prompt("q2", "zz"));
+    assert.equal(env.D.zoteroBooks()[0].book, "zz", "one each: the first book again");
   });
 
   test("sendZotero: POST /api/zotero/books with the app's header; the same list again sends nothing; a change sends it", async () => {
@@ -757,11 +768,11 @@ describe("M.desktop: in the app, the page that writes tells the server each book
     assert.equal(req.headers["X-Marginalia-Client"], "app");
     assert.equal(req.headers["X-Marginalia"], "1");
     assert.equal(req.headers["Content-Type"], "application/json");
-    assert.deepEqual(env.server.zotero, [{ sha256: SHA, prompts: 4 }, { sha256: SHA2.toLowerCase(), prompts: 0 }]);
+    assert.deepEqual(env.server.zotero, [{ sha256: SHA, prompts: 4, book: "b1" }, { sha256: SHA2.toLowerCase(), prompts: 0, book: "b2" }]);
     assert.equal(await env.D.sendZotero(), false, "nothing new");
     env.prompts.push(prompt("p10", "b2"));
     assert.equal(await env.D.sendZotero(), true);
-    assert.deepEqual(env.server.zotero[1], { sha256: SHA2.toLowerCase(), prompts: 1 });
+    assert.deepEqual(env.server.zotero[1], { sha256: SHA2.toLowerCase(), prompts: 1, book: "b2" });
     // a refusal is only logged, and the next try sends the list again
     env.server.zoteroStatus = 500;
     env.prompts.push(prompt("p11", "b2"));
