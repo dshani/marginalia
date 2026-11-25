@@ -17,6 +17,7 @@ Marginalia runs on your own computer. It has no account, no server on the intern
 - **Take your data with you.** Export to Anki, Markdown or a JSON backup. Marginalia also saves a backup by itself every day.
 - **Copy an equation as LaTeX** (optional; this needs your own Anthropic API key).
 - **Copy notes into Obsidian** (optional; it is off until you turn it on).
+- **Open a PDF from Zotero** in the Mac app, with a right click, and see in Zotero which items have prompts (optional; a small Zotero plugin).
 
 The full guide is [marginalia/README.md](marginalia/README.md).
 
@@ -38,7 +39,7 @@ Marginalia is made and tested on macOS (macOS 26, Python 3.13 and 3.14, Node.js 
 
 You build the app on your own Mac. This takes a few minutes and needs the internet once.
 
-1. Get the code. On the GitHub page, click **Code**, then **Download ZIP**, and unpack the file. With git: `git clone`, then the address of this repository.
+1. Get the code. On the GitHub page, click **Code**, then **Download ZIP**, and unpack the file. With git: `git clone`, then the address of this repository. Keep the project folder outside `/Applications` and `~/Applications` (for example in `~/Projects`): the build refuses to run there.
 2. Open Terminal and go to the project folder.
 3. Install the build tools, once:
 
@@ -113,6 +114,10 @@ In a browser, the page loads PDF.js and KaTeX from cdnjs and one font from Googl
 
 Marginalia can copy your notes and prompts into an [Obsidian](https://obsidian.md) vault, one Obsidian note per book. Turn it on in Settings › Obsidian › **Connect Marginalia to Obsidian**, then choose the vault. While it is off, Marginalia shows no Obsidian command. See "Obsidian" in the [guide](marginalia/README.md).
 
+## Zotero (optional)
+
+In the Mac app, a small [Zotero](https://www.zotero.org) plugin adds **Open in Marginalia** to the right-click menu of Zotero's item list. Pack it once with `cd desktop && npm run zotero`, then install `desktop/out/Marginalia-for-Zotero.xpi` in Zotero (Tools › Plugins, the gear menu, **Install Plugin From File…**). It needs Zotero 8 or later. While the app runs, an item whose book has prompts gets the tag **Marginalia**, in Marginalia's red, and a child link such as "12 prompts in Marginalia" that opens the book on a double-click. See "Zotero" in [desktop/README.md](desktop/README.md).
+
 ## For developers
 
 ```bash
@@ -137,6 +142,7 @@ The code comments and the documents cite labels such as `FEATURES P1.3`, `repair
 ## Known limits
 
 - **The Mac app builds only on a Mac with an Apple chip.** On an Intel Mac, use Marginalia in a browser.
+- **The project folder cannot be in `/Applications` or `~/Applications`.** The self-test never runs an app from those folders, so that it never touches an installed copy, and the build would land there too. `marginalia app` stops at once and says so; move the folder elsewhere.
 - **Not checked**: Windows and Linux (the browser version is plain Python and JavaScript, but nobody has tried it there), Safari, Firefox, and Python older than 3.13 (this includes Apple's own Python 3.9 in `/usr/bin`).
 - **Obsidian's Live Preview shows two comment lines around each note** that Marginalia writes (`<!-- marginalia:… -->`). The reading view hides them. Marginalia needs these lines to update a note in place.
 - **Apple did not sign the app.** You build it yourself, so macOS starts it without a warning. There is no ready-made download.

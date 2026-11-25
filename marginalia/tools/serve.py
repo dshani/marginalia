@@ -189,6 +189,18 @@ The desktop app (FEATURES E2.1; BUILD-NOTES "Desktop app"): only the Marginalia 
        of GET /api/backup/pdf/<sha256> (another site: 403, before the folder is read). The app's welcome card imports
        it ("Import the newest backup").
 
+Zotero (DECISIONS D34, step 2; BUILD-NOTES "Zotero"): with --app only (without it both are 404, as an unknown route)
+  POST /api/zotero/books {"books": [{"sha256": "<a book's PDF, 64 hex digits>", "prompts": <its prompts as the
+       library counts them (Q./A., cloze, notes), an integer from 0>, "book": "<optional: the id of the book a link
+       from Zotero opens>"}]} -> {"ok": true, "books": <how many SHA-256s>}: what the app's page says about its books,
+       kept in memory only (ZoteroBooks; a restart forgets it until the page says it again). A SHA-256 that comes twice
+       adds up (two books of one PDF), and keeps the first "book". A "book" is an id as js/app.js routes it (1 to
+       MAX_ZOTERO_ID characters, no "/", no control character, not "." or ".."). At most MAX_ZOTERO_BOOKS entries and MAX_ZOTERO_BODY bytes; anything
+       else is 400 and keeps what was there. The guards of every POST apply (X-Marginalia-Client: app).
+  GET  /api/zotero/books -> {"ok": true, "books": {"<sha256>": <prompts>}, "links": {"<sha256>": "<book id>"}, "at":
+       <the time of the last POST in ms, or null before the first>}: for Marginalia for Zotero (desktop/zotero/), which tags the Zotero items whose PDF it
+       opened in the app. Another site's request is refused (403), as GET /api/backup/latest.
+
 Security: the API answers loopback clients only (started with --bind 0.0.0.0 the app is reachable from the network,
 the vault and the backups are not); only GET and POST, only on those paths (anything else under /api/ is 404; no
 OPTIONS, no CORS headers, so no other site can make the browser send these requests); the Host header must be
@@ -238,6 +250,12 @@ MOVE_CLIENT = "browser-move"            # a covered browser page backing up its 
 APP_ONLY = "app_only"                   # the 409's "error" for any other POST while the server belongs to the app
 APP_ONLY_MESSAGE = "Marginalia is now an app. Open the Marginalia app to do this."
 NO_BACKUP = "no_backup"                 # GET /api/backup/latest's 404 "error"
+ZOTERO_PATH = "/api/zotero/books"       # with --app: POST the app's books and their prompts; GET them (Zotero)
+MAX_ZOTERO_BODY = 8 * 1024 * 1024       # POST /api/zotero/books (MAX_ZOTERO_BOOKS entries fit)
+MAX_ZOTERO_BOOKS = 50000                # entries in one POST /api/zotero/books
+MAX_ZOTERO_PROMPTS = 10 ** 9            # a book's prompts (an integer from 0 up to this)
+MAX_ZOTERO_ID = 400                     # a book id in POST /api/zotero/books
+ZOTERO_ID_BAD_RE = re.compile(r"[\x00-\x1f\x7f-\x9f/]")    # what no book id holds (desktop/lib/hash.js BAD_ID_RE)
 CONFIG_ENV = "MARGINALIA_OBSIDIAN_CONFIG"
 BACKUP_ENV = "MARGINALIA_BACKUP_DIR"
 MAX_BODY = 25 * 1024 * 1024             # POST /api/obsidian/note
@@ -2119,10 +2137,62 @@ def config_from_environment():
     return default_config_path()
 
 
+class ZoteroBooks:
+    """What the app's page last said about its books (POST /api/zotero/books), for Marginalia for Zotero (GET): a
+    book's SHA-256 -> its prompts, and the time of that POST. In memory only, one per server."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.books = {}
+        self.links = {}
+        self.at = None
+
+    def put(self, books, links=None):
+        with self.lock:
+            self.books = dict(books)
+            self.links = dict(links or {})
+            self.at = int(time.time() * 1000)
+
+    def get(self):
+        with self.lock:
+            return {"ok": True, "books": dict(self.books), "links": dict(self.links), "at": self.at}
+
+
+def zotero_books(req):
+    """The body of POST /api/zotero/books as ({sha256 (lower case): prompts}, {sha256: book id}); ApiError 400 when it
+    is not {"books": [{"sha256", "prompts", "book"?}]} with at most MAX_ZOTERO_BOOKS entries, each a SHA-256 of 64 hex
+    digits, an integer from 0 to MAX_ZOTERO_PROMPTS (not a bool), and, when given, a book id (1 to MAX_ZOTERO_ID
+    characters, none of ZOTERO_ID_BAD_RE, not "." or ".."). A SHA-256 that comes twice adds up and keeps its first
+    book id."""
+    books = req.get("books") if isinstance(req, dict) else None
+    if not isinstance(books, list):
+        raise ApiError(400, "the body must be {\"books\": [...]}")
+    if len(books) > MAX_ZOTERO_BOOKS:
+        raise ApiError(400, "more than %d books" % MAX_ZOTERO_BOOKS)
+    out, links = {}, {}
+    for b in books:
+        sha = b.get("sha256") if isinstance(b, dict) else None
+        n = b.get("prompts") if isinstance(b, dict) else None
+        book = b.get("book") if isinstance(b, dict) else None
+        if not isinstance(sha, str) or not SHA256_RE.fullmatch(sha):
+            raise ApiError(400, "each book needs a sha256 of 64 hex digits")
+        if isinstance(n, bool) or not isinstance(n, int) or n < 0 or n > MAX_ZOTERO_PROMPTS:
+            raise ApiError(400, "each book needs a number of prompts from 0")
+        if book is not None and (not isinstance(book, str) or not 0 < len(book) <= MAX_ZOTERO_ID or book in (".", "..")
+                                 or ZOTERO_ID_BAD_RE.search(book)):
+            raise ApiError(400, "a book's id must be one the app gives a book")
+        key = sha.lower()
+        out[key] = min(out.get(key, 0) + n, MAX_ZOTERO_PROMPTS)
+        if book is not None and key not in links:
+            links[key] = book
+    return out, links
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     obsidian_config = None      # None: config_from_environment(); "" (blank): no vault
     backup_dir = None           # the backup folder (check_backup_dir), or None: no backups, /api/backup* is 404
     app_version = None          # --app: the desktop app's version (GET /api/app, the X-Marginalia-Client guard), or None
+    zotero = None               # --app: the ZoteroBooks of /api/zotero/books, one per server; None without --app
     api_response = False
     responded = False
 
@@ -2221,6 +2291,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self.send_json(200, {"ok": True, "app": True, "version": self.app_version})
         if path == LATEST_PATH:
             return self.answer_latest_backup()
+        if path == ZOTERO_PATH and self.zotero is not None:
+            if self.other_site():
+                return self.send_error_json(403, "forbidden site")
+            return self.send_json(200, self.zotero.get())
         if path == BACKUP_PATH and self.backup_dir is not None:
             try:
                 listing = backup_listing(self.backup_dir)
@@ -2385,6 +2459,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             limit, too_large = MAX_BACKUP_BODY, "the backup is larger than 512 MB"
         elif path == PDF_PATH and self.backup_dir is not None:
             limit, too_large, wanted = MAX_PDF_BODY, "the PDF is larger than 300 MB", "application/pdf"
+        elif path == ZOTERO_PATH and self.zotero is not None:
+            limit, too_large = MAX_ZOTERO_BODY, "the list of books is larger than 8 MB"
         else:
             return self.send_error_json(404, "not found")
         if not self.origin_ok():
@@ -2423,6 +2499,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             req = json.loads(body.decode("utf-8"))
         except (ValueError, UnicodeDecodeError, RecursionError):
             return self.send_error_json(400, "the body is not JSON")
+        if path == ZOTERO_PATH:
+            try:
+                books, links = zotero_books(req)
+            except ApiError as e:
+                return self.send_error_json(e.status, e.message, e.extra)
+            self.zotero.put(books, links)
+            return self.send_json(200, {"ok": True, "books": len(books)})
         try:
             res = (write_note if path == NOTE_PATH else write_notes)(self.config_path(), req)
         except ApiError as e:
@@ -2498,11 +2581,13 @@ def make_server(directory, bind="127.0.0.1", port=8765, obsidian_config=None, qu
     default, means no backups at all (every /api/backup route answers 404), so a server made here never reaches
     ~/Documents/Marginalia Backups unless it is told to (main() resolves the default). app_version (--app, only the
     desktop app passes it; check_app_version: ValueError unless digits.digits.digits) makes it the app's server: GET
-    /api/app answers, and every POST needs X-Marginalia-Client (client_may_write); None, the default, changes nothing."""
+    /api/app answers, every POST needs X-Marginalia-Client (client_may_write), and /api/zotero/books is there (a
+    ZoteroBooks of its own); None, the default, changes nothing."""
     root = os.path.abspath(directory)
     attrs = {"obsidian_config": obsidian_config,
              "backup_dir": None if backup_dir is None else check_backup_dir(backup_dir, root),
              "app_version": None if app_version is None else check_app_version(app_version)}
+    attrs["zotero"] = None if attrs["app_version"] is None else ZoteroBooks()
     if quiet:
         attrs["log_message"] = lambda self, *args: None
     handler_cls = type("MarginaliaHandler", (Handler,), attrs)

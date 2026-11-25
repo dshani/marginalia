@@ -61,7 +61,8 @@ test("a defaults domain is removed when it holds only Chromium's three start-up 
 
 test("the runner refuses an installed app under any of its names, and a changed HOME (SEC-1)", () => {
   const home = os.userInfo().homedir;
-  const env = { home, envHome: home };
+  const projectDir = fs.realpathSync(os.tmpdir());       // a project folder outside Applications (refused on its own: next test)
+  const env = { home, envHome: home, projectDir };
   for (const app of ["/Applications/Marginalia.app", "/applications/Marginalia.app", "/System/Volumes/Data/Applications/Marginalia.app",
     path.join(home, "Applications", "Marginalia.app")]) {
     assert.throws(() => runner.refuseToRun(app, env), /never an installed app/, app);
@@ -71,8 +72,20 @@ test("the runner refuses an installed app under any of its names, and a changed 
     fs.symlinkSync("/Applications", path.join(dir, "Apps"));
     assert.throws(() => runner.refuseToRun(path.join(dir, "Apps", "Marginalia.app"), env), /never an installed app/);
     assert.doesNotThrow(() => runner.refuseToRun(path.join(dir, "out", "Marginalia.app"), env));
-    assert.throws(() => runner.refuseToRun(path.join(dir, "out", "Marginalia.app"), { home, envHome: dir }), /real HOME/);
+    assert.throws(() => runner.refuseToRun(path.join(dir, "out", "Marginalia.app"), { home, envHome: dir, projectDir }), /real HOME/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("a project folder inside /Applications or ~/Applications is refused with a clear message (not supported)", () => {
+  const home = os.userInfo().homedir;
+  for (const dir of [path.join(home, "Applications", "someproject"), "/Applications/someproject", path.join(home, "applications", "x", "y")]) {
+    assert.throws(() => runner.refuseProjectInApplications(home, dir), /inside an Applications folder.*not supported.*Move the project folder/, dir);
+    assert.throws(() => runner.refuseToRun(path.join(dir, "desktop", "out", "Marginalia.app"), { home, envHome: home, projectDir: dir }),
+      /not supported/, dir);
+  }
+  assert.doesNotThrow(() => runner.refuseProjectInApplications(home, path.join(home, "Projects", "someproject")));
+  const src = fs.readFileSync(path.join(__dirname, "..", "scripts", "build.js"), "utf8");
+  assert.ok(src.indexOf("refuseProjectInApplications(") < src.indexOf("copyWeb();"), "the build checks before step 1");
 });
 
 test("the second launch carries the one link a self-test takes, and the guard lets exactly that one through (R5)", () => {

@@ -352,6 +352,9 @@ cmd_app() {
   if [ -n "$aside" ]; then rm -rf "$SET_ASIDE" 2>/dev/null || true; aside=""; fi
   ls_register -f "$INSTALLED" || true
   ls_register -u "$BUILT" || true
+  # The build copy goes (DECISIONS D34): macOS registers it again when Spotlight finds it, and with two copies of one
+  # version `open -b local.marginalia.desktop` (Open With, Zotero's "Open in Marginalia") could start the build copy.
+  rm -rf "$BUILT" 2>/dev/null || say "Note: could not delete the build copy $BUILT."
   if [ -n "$moved" ]; then ls_register -u "$PREVIOUS" || true; fi
   moved=""
   version="$(plist_value "$INSTALLED" CFBundleShortVersionString)"

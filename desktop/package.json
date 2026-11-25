@@ -1,13 +1,14 @@
 {
   "name": "marginalia-desktop",
   "productName": "Marginalia",
-  "version": "1.7.0",
+  "version": "1.10.0",
   "description": "Marginalia as a Mac app: an Electron window around the web app and its own copy of tools/serve.py",
   "private": true,
   "license": "MIT",
   "main": "main.js",
   "scripts": {
     "app": "node scripts/build.js",
+    "zotero": "node scripts/zotero.js",
     "test": "node --test"
   },
   "devDependencies": {

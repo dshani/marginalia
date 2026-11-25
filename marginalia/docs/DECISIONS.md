@@ -222,3 +222,64 @@ D33 Undo and redo for cards (2026-11-18). The user: "Is there a way to add undo/
         review answers have no undo here. Claude's choice, told to the user: the Edit menu of the Mac app is
         unchanged, so its Undo and Redo, clicked with the pointer, act on text only; the keys do both. The
         app is 1.7.0.
+
+D34 Open a PDF from Zotero (2026-11-23). The user: "would there be an easy way to link this app with zotero?",
+    and then: "ideally im able to have a right click option in zotero to open the pdf in marginalia, and then
+    theres some kind of link from zotero to the note cards i create or some kind of record of marginalia note
+    cards in zotero". Claude proposed two steps: (1) "Open in Marginalia" in Zotero's right-click menu, (2) a
+    record in Zotero that a book has cards (the user: "i dont need a link to each card, i just want some kind
+    of evidence that cards exist"; Claude proposed a tag). The user: "maybe we do this first?" for step 1, and
+    "Yes, build it" to its one channel. Built (rules in BUILD-NOTES "Zotero"):
+    (1) the Mac app opens a PDF that macOS hands it: Finder's Open With lists it as an alternative (it never
+        becomes the Mac's default app for PDFs), and `open -b local.marginalia.desktop <file>` works. The
+        window in front adds it as a dropped PDF and opens it in the reader; a PDF that is already in the
+        library opens its book, so nothing is added twice. A file that is no PDF is refused with a notice;
+    (2) the app's preload gets its first ipc channel, from the app to the page only: it carries the name and
+        the bytes of such a PDF, never its place on the disk. The page cannot send anything through it;
+    (3) Marginalia for Zotero, a Zotero plugin in desktop/zotero/ (Zotero 8 to 10; `npm run zotero` packs it
+        into desktop/out/Marginalia-for-Zotero.xpi, which the user installs in Zotero): "Open in Marginalia"
+        on an item with a PDF, or on a PDF, opens it through `open -b`. A regular item gives its best PDF
+        attachment, as a double-click in Zotero does. At most 20 at once;
+    (4) Claude's choices, told to the user: the plugin lives in desktop/ with the Mac app it needs, its tests
+        run with the desktop tests, and the Zotero key is not stored yet: step 2 needs it, and step 2 is not
+        built. Step 2 waits for the user's word. The app is 1.8.0;
+    (5) `marginalia app` deletes the build copy in desktop/out/ once it has installed the app. Claude found that
+        macOS registers that copy again (Spotlight finds it in the project folder), so `open -b` could start it
+        instead of the installed app; Claude asked, the user: "Yes, change it".
+    Step 2 (2026-11-23). The user: "yes lets go step 2". Claude asked three questions; the user chose: only
+    the items whose PDF was opened with "Open in Marginalia", only Q./A. and cloze prompts count, and the tag
+    with a count note. Built (rules in BUILD-NOTES "Zotero"):
+    (6) the plugin remembers each PDF it opens by its SHA-256 (the one the library keys a book's PDF by) and
+        its attachment, in a Zotero preference. A book added in another way gets the tag once its PDF is opened
+        from Zotero once. (4)'s "the Zotero key is not stored" holds: Marginalia never learns a Zotero key;
+    (7) in the app, the page that writes tells the app's server each book's SHA-256 and its live Q./A. and
+        cloze prompts, after boot and 2 seconds after a change; the server keeps that list in memory only, and
+        the plugin reads it (GET /api/zotero/books) 30 seconds after Zotero starts, every 5 minutes (every 30
+        seconds since (11)), and 15 and 60 seconds after an open;
+    (8) an item whose PDFs have prompts gets the tag "Marginalia" and, when it is a regular item, one child
+        note "<n> prompts in Marginalia", changed when the count changes. With no prompts (or the book deleted)
+        the tag goes and the note goes to Zotero's trash. While the app is closed nothing changes. The app is
+        1.9.0, the plugin 1.1.0.
+    (9) Changed the same day: notes count too. The user's book showed "1 prompt" in the library and got no tag,
+        because its card was a note: the library counts Q./A., cloze and notes as prompts (js/cache.js COUNTED),
+        and the note in Zotero says "<n> prompts" too. Claude proposed counting what the library counts; the
+        user: "yes, do that". Highlights still do not count.
+    (10) The tag's colour (2026-11-23). The user: "can we make it so that my zotero plug in automatically makes
+        marginalia tags colored in a certain way". Claude proposed colouring the tag only while it has none,
+        and asked which colour; the user chose Marginalia's red (#E04A2F, the app's accent). The plugin sets it
+        once in each library, and never past Zotero's nine coloured tags; a colour the user picks or takes away
+        stays. The plugin is 1.2.0.
+    (11) Asked more often (2026-11-23). The user: "is there a way to automatically update zotero's count once
+        a new prompt has been made?" The app said a change after 2 seconds, but the plugin asked only every 5
+        minutes. Claude proposed asking every 30 seconds (or a push into Zotero's own local server, which it
+        advised against); the user: "yes just ask more often. 30 seconds seems reasonable". The plugin applies
+        a list only when it is newer than the last one, or a PDF was just opened. The plugin is 1.3.0.
+    (12) The note links to the book (2026-11-23). The user: "can we make the child notes a link to the file on
+        marginalia instead of just a note in zotero". Claude found that Zotero hands a non-web link clicked in
+        a note to macOS (Zotero.launchURL), so the note's text became a marginalia:// link that opens the book
+        in the app's reader, as Obsidian's "Open in Marginalia" links do. The page also sends each PDF's book
+        id (the book of that PDF with the most prompts; on a tie the first book, not a separate copy). The app
+        is 1.10.0, the plugin 1.4.0.
+    (13) The child item opens the app directly (2026-11-23). Plugin 1.5.0 uses a Zotero linked-URL attachment
+        titled with the prompt count. Double-click opens the book in Marginalia, or the library if an older
+        app supplies only counts. On sync the plugin saves the new attachment and moves its old note to Trash.

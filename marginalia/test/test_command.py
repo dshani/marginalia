@@ -29,7 +29,7 @@ tests) whatever MARGINALIA_PORT says; MARGINALIA_APP must be a whole .app path.
 InstallTest: marginalia app refuses while the app runs, builds and tests with npm run app in desktop/, and only then
 copies the new app next to the installed one (<app>.new) with ditto, moves the installed copy to desktop/out/previous
 (the older previous copy set aside as Marginalia.app.old until the end), renames the new copy into place and registers
-it (lsregister -f; the build copy and the previous copy -u); a failed build, a build with no app, a failed copy or move,
+it (lsregister -f; the build copy and the previous copy -u), then deletes the build copy; a failed build, a build with no app, a failed copy or move,
 the app opened during the build, or Ctrl+C (INT), a closed Terminal window (HUP) or TERM while it installs leave the
 installed copy and the previous copy as they were (exit 1, or the signal), and what a killed install left behind is
 cleared by the next one.
@@ -788,6 +788,7 @@ class InstallTest(CommandTestBase):
                                                 ("lsregister", ["-f", self.installed], self.tmp),
                                                 ("lsregister", ["-u", self.built()], self.tmp)])
         self.assertEqual(self.tag(self.installed), "build 1.2.3")
+        self.assertFalse(os.path.exists(self.built()), "the build copy is gone (D34: macOS would register it again)")
         self.assertFalse(os.path.exists(os.path.dirname(self.previous())), "nothing was installed before")
         # the next version: the installed copy goes to desktop/out/previous
         self.set("npm.version", "1.2.4")

@@ -31,7 +31,7 @@ function goodRaw() {
     errors: [], boot: true, storeMode: "idb", marker: "123",
     backup: { status: "on", dir: "/private/tmp/st/backups" },
     obsidian: { mode: "server", server: true, vaults: [{ name: "Sandbox Vault" }] },
-    desktop: { app: true, version: "1.0.0", platform: "darwin", keys: ["app", "platform", "version"], frozen: true, writable: false, configurable: false, reassigned: false },
+    desktop: { app: true, version: "1.0.0", platform: "darwin", onOpenPdf: "function", keys: ["app", "onOpenPdf", "platform", "version"], frozen: true, writable: false, configurable: false, reassigned: false },
     nodeGlobals: { require: "undefined", process: "undefined", module: "undefined", Buffer: "undefined" },
     pdfjs: { version: "3.11.174", workerSrc: "blob:" },
     katex: { version: "0.16.47", renders: true },
@@ -130,6 +130,10 @@ function goodCtx() {
     contextMenus: { canvas: { labels: ["Copy Image"] }, field: { labels: ["teh", "-", "Cut", "Copy", "Paste", "Paste and Match Style", "Select All"] } },
     handoff: { hashes: ["#library"], applied: true, before: { screen: "reader", marker: "123", timeOrigin: 1.5 },
       after: { screen: "library", hash: "#library", marker: "123", timeOrigin: 1.5 } },
+    openPdf: { before: { screen: "library", collectionId: null, books: 1, marker: "123" },
+      after: { screen: "reader", collectionId: p.expect.bookId, books: 1, marker: "123" }, refused: 1, waiting: 0, error: null },
+    zotero: { page: { sent: true, books: [{ sha256: p.expect.sha256, prompts: 2, book: p.expect.bookId }] }, status: 200,
+      body: { ok: true, books: { [p.expect.sha256]: 2 }, links: { [p.expect.sha256]: p.expect.bookId }, at: 5 }, error: null },
     appApi: { status: 200, body: { ok: true, app: true, version: "1.0.0" } },
     prepared: p,
     folders: { afterRefusals: { backupFiles: [], vaultNotes: 0 } },
@@ -154,8 +158,8 @@ test("everything as it should be: the self-test passes", () => {
   assert.equal(v.ok, true);
   assert.deepEqual(Object.keys(v.checks).sort(), ["app-api", "app-mode", "app-only", "backup-on", "backup-write", "boot", "close-hides", "cmaps-blocked",
     "context-menu", "cover-mode", "desktop-bridge", "download", "external-links", "fonts-local", "hidden", "katex", "link-handoff", "menu",
-    "mock-keychain", "no-node", "obsidian-server", "pdf-restore", "pdfjs", "permissions", "persisted", "requests-local", "sample-pdf",
-    "store-idb", "tabs", "undo-redo", "welcome-card", "welcome-import", "windows"]);
+    "mock-keychain", "no-node", "obsidian-server", "open-pdf", "pdf-restore", "pdfjs", "permissions", "persisted", "requests-local", "sample-pdf",
+    "store-idb", "tabs", "undo-redo", "welcome-card", "welcome-import", "windows", "zotero-books"]);
   const alone = goodCtx();
   alone.handoff = null;                               // the app run by hand: no second launch, no link-handoff check
   const w = st.evaluate(goodRaw(), alone);
@@ -180,6 +184,19 @@ test("each fault fails its own check", () => {
     ["obsidian-server", (r) => { r.obsidian.mode = "link"; }],
     ["desktop-bridge", (r) => { r.desktop.keys.push("ipc"); }],
     ["desktop-bridge", (r) => { r.desktop.frozen = false; }],
+    ["desktop-bridge", (r) => { r.desktop.onOpenPdf = "undefined"; r.desktop.keys = ["app", "platform", "version"]; }],
+    ["open-pdf", (r, c) => { c.openPdf.after.screen = "library"; }],                // the PDF did not open its book
+    ["open-pdf", (r, c) => { c.openPdf.after.books = 2; }],                         // the same PDF was added again
+    ["open-pdf", (r, c) => { c.openPdf.after.marker = "456"; }],                    // the page reloaded
+    ["open-pdf", (r, c) => { c.openPdf.refused = 0; }],                             // the file that is no PDF got through
+    ["open-pdf", (r, c) => { c.openPdf.waiting = 1; }],                             // a PDF never reached the page
+    ["open-pdf", (r, c) => { c.openPdf.error = "boom"; }],
+    ["zotero-books", (r, c) => { c.zotero.status = 404; }],                           // the server has no such route
+    ["zotero-books", (r, c) => { c.zotero.body.books = {}; }],                        // the page's list never got there
+    ["zotero-books", (r, c) => { c.zotero.page.books[0].prompts = 0; c.zotero.body.books[c.prepared.expect.sha256] = 0; }],
+    ["zotero-books", (r, c) => { c.zotero.body.at = null; }],
+    ["zotero-books", (r, c) => { c.zotero.body.links = {}; }],                        // no link to the book
+    ["zotero-books", (r, c) => { c.zotero.body.links[c.prepared.expect.sha256] = "another"; c.zotero.page.books[0].book = "another"; }],
     ["desktop-bridge", (r) => { r.desktop.reassigned = true; }],
     ["no-node", (r) => { r.nodeGlobals.require = "function"; }],
     ["pdfjs", (r) => { r.pdfjs.workerSrc = "https"; }],

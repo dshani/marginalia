@@ -106,6 +106,11 @@ function makeServer(over) {
       const b = JSON.parse(init.body);
       return Promise.resolve(res(200, { ok: true, file: b.file, created: true, results: b.blocks.map((x) => ({ blockId: x.blockId, ok: true, replaced: false })) }));
     }
+    if (u === "/api/zotero/books" && method === "POST") {
+      if (srv.zoteroStatus) return Promise.resolve(res(srv.zoteroStatus, { ok: false, error: "x" }));
+      srv.zotero = JSON.parse(init.body).books;
+      return Promise.resolve(res(200, { ok: true, books: srv.zotero.length }));
+    }
     return Promise.resolve(res(404, { ok: false, error: "not found" }));
   };
   srv.posts = () => srv.requests.filter((r) => r.method === "POST");
@@ -655,5 +660,154 @@ describe("index.html and css/desktop.css (FEATURES E2.2; BUILD-NOTES \"CSS owner
       assert.doesNotMatch(body, /#[0-9a-f]{3,6}\b/i, sel + " has no fixed colour");
     }
     assert.match(rule(libCss, ".lib-welcome"), /background:\s*var\(--surface\)/);
+  });
+});
+
+/* ------------------------------------------------------------------ PDFs that macOS hands the app (DECISIONS D34) */
+
+describe("M.desktop: a PDF that macOS hands the app is added as a dropped PDF (DECISIONS D34)", () => {
+  // window.marginaliaDesktop as the app's preload makes it, with onOpenPdf taking the page's one handler
+  function appBridge() {
+    const b = { handlers: [] };
+    b.api = Object.freeze({ app: true, version: "1.8.0", platform: "darwin",
+      onOpenPdf: (fn) => { if (typeof fn !== "function" || b.handlers.length) return false; b.handlers.push(fn); return true; } });
+    return b;
+  }
+  function withLibrary(env, opts) {
+    const o = opts || {};
+    env.added = [];
+    let booted;
+    env.boot = new Promise((r) => { booted = r; });
+    env.finishBoot = () => booted(true);
+    env.win.File = class { constructor(parts, name, init) { this.parts = parts; this.name = name; this.type = init && init.type; } };
+    env.M.app.boot = () => env.boot;
+    env.M.library.addPdf = (file) => {
+      env.added.push({ name: file.name, type: file.type, bytes: Array.from(file.parts[0]) });
+      if (o.fail) return Promise.reject(Object.assign(new Error("Not a PDF"), { code: "not_pdf" }));
+      return new Promise((r) => setTimeout(() => r({ id: "book_" + env.added.length }), 5));
+    };
+    return env;
+  }
+
+  test("start() in the app binds onOpenPdf once; a browser page has nothing to bind", async () => {
+    const b = appBridge();
+    const env = page({ app: b.api });
+    await env.D.start();
+    await env.D.start();
+    assert.equal(b.handlers.length, 1);
+    const plainApp = page({ app: true });                 // an older preload with no onOpenPdf: nothing breaks
+    assert.equal(await plainApp.D.start(), "app");
+  });
+
+  test("a PDF that comes during boot waits for it, then goes to M.library.addPdf with its name and bytes; several go one after the other", async () => {
+    const b = appBridge();
+    const env = withLibrary(page({ app: b.api }));
+    await env.D.start();
+    const send = b.handlers[0];
+    const u8 = (s) => new Uint8Array(Buffer.from(s));
+    const one = send("Smith 2020.pdf", u8("%PDF-1.7 one"));
+    const two = send("", u8("%PDF-1.7 two"));
+    await settle();
+    assert.deepEqual(env.added, [], "nothing before the library has booted");
+    env.finishBoot();
+    await Promise.all([one, two].map((p) => p || Promise.resolve()));
+    await wait(30);
+    assert.deepEqual(env.added.map((a) => a.name), ["Smith 2020.pdf", "document.pdf"]);
+    assert.deepEqual(env.added.map((a) => a.type), ["application/pdf", "application/pdf"]);
+    assert.equal(Buffer.from(env.added[0].bytes).toString(), "%PDF-1.7 one");
+  });
+
+  test("openPdf never rejects: addPdf's own error (it shows its notice) and bytes that are no Uint8Array leave the page as it is", async () => {
+    const env = withLibrary(page({ app: true }), { fail: true });
+    env.finishBoot();
+    assert.equal(await env.D.openPdf("x.pdf", new Uint8Array([1, 2])), null);
+    assert.equal(env.added.length, 1);
+    assert.equal(await env.D.openPdf("y.pdf", "not bytes"), null);
+    assert.equal(env.added.length, 1, "no File is made of something that is no bytes");
+    assert.deepEqual(env.logs, [], "addPdf's error is its own (a notice), not a page error");
+  });
+});
+
+/* ------------------------------------------------------------------ the books for Zotero (DECISIONS D34, step 2) */
+
+describe("M.desktop: in the app, the page that writes tells the server each book's prompts (DECISIONS D34, step 2)", () => {
+  const SHA2 = "C".repeat(64);
+  const zoteroPosts = (env) => env.server.posts().filter((r) => r.url === "/api/zotero/books");
+  function library() {
+    return {
+      collections: [book("b1"), book("b2", { sha256: SHA2 }), book("b3", { sha256: SHA, name: "A separate copy" }),
+        book("gone", { sha256: "d".repeat(64), deletedAt: T0 }), book("nosha", { sha256: "" }), DECK],
+      prompts: [prompt("p1", "b1"), prompt("p2", "b1", { kind: "cloze" }), prompt("p3", "b1", { kind: "note" }),
+        prompt("p4", "b1", { kind: "highlight" }), prompt("p5", "b1", { deletedAt: T0 }), prompt("p6", "b3"),
+        prompt("p7", "gone"), prompt("p8", "deck_1"), prompt("p9", "nosha")]
+    };
+  }
+
+  test("zoteroBooks: each live book's live prompts as the library counts them (Q./A., cloze, notes), by SHA-256", () => {
+    const env = page(Object.assign({ app: true }, library()));
+    // b1: a Q./A., a cloze and a note (not its highlight, not its deleted prompt); b3, a second book of b1's PDF: one
+    // the link goes to b1, the book of that PDF with the most prompts
+    assert.deepEqual(plain(env.D.zoteroBooks()), [{ sha256: SHA, prompts: 4, book: "b1" }, { sha256: SHA2.toLowerCase(), prompts: 0, book: "b2" }]);
+  });
+
+  test("zoteroBooks: the link goes to the book of a PDF with the most prompts; on a tie, the first book, not a separate copy", () => {
+    const copy = SHA + ":1a2b3c4d";
+    const env = page({ app: true, collections: [book(copy), book("zz")], prompts: [] });
+    assert.equal(env.D.zoteroBooks()[0].book, "zz", "no prompts anywhere: the shorter id");
+    env.prompts.push(prompt("q1", copy));
+    assert.equal(env.D.zoteroBooks()[0].book, copy, "the separate copy has the prompt");
+    env.prompts.push(prompt("q2", "zz"));
+    assert.equal(env.D.zoteroBooks()[0].book, "zz", "one each: the first book again");
+  });
+
+  test("sendZotero: POST /api/zotero/books with the app's header; the same list again sends nothing; a change sends it", async () => {
+    const env = page(Object.assign({ app: true }, library()));
+    await env.D.start();
+    assert.equal(await env.D.sendZotero(), true);
+    const [req] = zoteroPosts(env);
+    assert.equal(req.headers["X-Marginalia-Client"], "app");
+    assert.equal(req.headers["X-Marginalia"], "1");
+    assert.equal(req.headers["Content-Type"], "application/json");
+    assert.deepEqual(env.server.zotero, [{ sha256: SHA, prompts: 4, book: "b1" }, { sha256: SHA2.toLowerCase(), prompts: 0, book: "b2" }]);
+    assert.equal(await env.D.sendZotero(), false, "nothing new");
+    env.prompts.push(prompt("p10", "b2"));
+    assert.equal(await env.D.sendZotero(), true);
+    assert.deepEqual(env.server.zotero[1], { sha256: SHA2.toLowerCase(), prompts: 1, book: "b2" });
+    // a refusal is only logged, and the next try sends the list again
+    env.server.zoteroStatus = 500;
+    env.prompts.push(prompt("p11", "b2"));
+    assert.equal(await env.D.sendZotero(), null);
+    env.server.zoteroStatus = 0;
+    assert.equal(await env.D.sendZotero(), true);
+    assert.equal(zoteroPosts(env).length, 4);
+  });
+
+  test("only in the app, and only from the page that writes", async () => {
+    const browser = page(Object.assign({ hostname: "example.com" }, library()));
+    await browser.D.start();
+    assert.equal(await browser.D.sendZotero(), false);
+    const reader = page(Object.assign({ app: true }, library()));
+    await reader.D.start();
+    reader.M.store.writer = () => false;               // another window of the app writes (D31)
+    assert.equal(await reader.D.sendZotero(), false);
+    reader.M.store.writer = () => true;
+    assert.equal(await reader.D.sendZotero(), true);
+    assert.equal(zoteroPosts(browser).length + zoteroPosts(reader).length, 1);
+  });
+
+  test("the app sends once after boot and once after a burst of changes", async () => {
+    const env = page(Object.assign({ app: true }, library()));
+    env.D._setZoteroWait(20);
+    await env.D.start();
+    await wait(60);
+    assert.equal(zoteroPosts(env).length, 1, "after boot");
+    env.prompts.push(prompt("p12", "b2"));
+    for (const ev of ["prompt:saved", "prompt:deleted", "collection:changed", "import:finished"]) env.M.bus.emit(ev, {});
+    await wait(60);
+    assert.equal(zoteroPosts(env).length, 2, "one POST for the four events");
+    env.M.bus.emit("prompt:saved", {});
+    await wait(60);
+    assert.equal(zoteroPosts(env).length, 2, "an event that changed no count sends nothing");
+    env.D._setZoteroWait();
   });
 });

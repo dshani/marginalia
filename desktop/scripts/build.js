@@ -41,9 +41,13 @@ const PKG = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"))
 const ELECTRON_PKG = path.join(ROOT, "node_modules", "electron");
 const BUNDLE_ID = "local.marginalia.desktop";
 const APP_NAME = "Marginalia";
-const RUNTIME_LIB = ["args.js", "contextmenu.js", "hash.js", "lifecycle.js", "menu.js", "policy.js", "python.js", "rotatelog.js", "selftest.js",
+const RUNTIME_LIB = ["args.js", "contextmenu.js", "hash.js", "lifecycle.js", "menu.js", "openfile.js", "policy.js", "python.js", "rotatelog.js", "selftest.js",
   "server.js", "windowstate.js"];
 const OFFLINE = process.env.MARGINALIA_OFFLINE === "1";
+// DECISIONS D34: the app opens PDFs that macOS hands it (Open With, Zotero's "Open in Marginalia"), as a viewer and
+// only as an alternative: it never becomes the Mac's default app for PDFs.
+const DOCUMENT_TYPES = [{ CFBundleTypeName: "PDF document", CFBundleTypeRole: "Viewer", LSHandlerRank: "Alternate",
+  LSItemContentTypes: ["com.adobe.pdf"] }];
 const WEB_FILES = ["index.html", "styles.css", "tools/serve.py", "test/sample.pdf"];   // plus css/*.css and js/*.js
 const FUSES = {   // @electron/fuses FuseV1Options: what this app turns off and on
   RunAsNode: false,
@@ -207,6 +211,7 @@ async function packageApp(icns, sign) {
     junk: true,
     extraResource: [WEB],
     protocols: [{ name: "Marginalia link", schemes: ["marginalia"] }],
+    extendInfo: { CFBundleDocumentTypes: DOCUMENT_TYPES },
     download: { cacheRoot: path.join(CACHE, "electron"), checksums, tempDirectory: TMP },
     tmpdir: TMP,
     afterCopyExtraResources: [async ({ buildPath }) => {
@@ -226,6 +231,12 @@ function plist(file) {
   return JSON.parse(execFileSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", file], { encoding: "utf8" }));
 }
 
+// JSON with every object's keys sorted: plutil writes a dictionary's keys in an order of its own.
+function sortedJson(v) {
+  return JSON.stringify(v, (k, x) => (x && typeof x === "object" && !Array.isArray(x)
+    ? Object.keys(x).sort().reduce((o, key) => { o[key] = x[key]; return o; }, {}) : x));
+}
+
 // What `codesign -dv` says about a signature: {signature: "adhoc" | the first Authority, runtime: hardened runtime on}.
 function signatureInfo(stderr) {
   const text = String(stderr || "");
@@ -241,6 +252,7 @@ async function checkApp(appPath, sign) {
   if (info.CFBundleName !== APP_NAME) problems.push("bundle name " + info.CFBundleName);
   const schemes = (info.CFBundleURLTypes || []).flatMap((t) => t.CFBundleURLSchemes || []);
   if (JSON.stringify(schemes) !== JSON.stringify(["marginalia"])) problems.push("URL schemes " + JSON.stringify(schemes));
+  if (sortedJson(info.CFBundleDocumentTypes || null) !== sortedJson(DOCUMENT_TYPES)) problems.push("document types " + JSON.stringify(info.CFBundleDocumentTypes || null));
   if (!info.ElectronAsarIntegrity || !info.ElectronAsarIntegrity["Resources/app.asar"]) problems.push("no ElectronAsarIntegrity for app.asar");
   const fuses = await readFuses(appPath);
   for (const [name, want] of Object.entries(FUSES)) if (fuses[name] !== want) problems.push("fuse " + name + " is " + fuses[name]);
@@ -282,6 +294,7 @@ function checkVersion(version) {
 async function main() {
   if (process.platform !== "darwin" || process.arch !== "arm64") throw new Error("this build makes the arm64 Mac app and runs on an arm64 Mac");
   const t0 = Date.now();
+  require("./selftest").refuseProjectInApplications(require("node:os").userInfo().homedir);   // before anything is built
   checkVersion(PKG.version);
   const sign = signingIdentity();                      // before anything is built: a bad sign-identity stops it at once
   if (OFFLINE) checkOfflineElectron(path.join(CACHE, "electron"), electronVersion());
@@ -328,4 +341,4 @@ if (require.main === module) {
 }
 
 module.exports = { copyWeb, localRefs, stageApp, makeIcon, packageApp, checkApp, readFuses, cachedElectronZip, checkOfflineElectron,
-  signingIdentity, osxSignOptions, signatureInfo, checkVersion, BUNDLE_ID, FUSES, RUNTIME_LIB, WEB_FILES, LOCK_FILE, SIGN_IDENTITY_FILE };
+  signingIdentity, osxSignOptions, signatureInfo, checkVersion, BUNDLE_ID, FUSES, DOCUMENT_TYPES, RUNTIME_LIB, WEB_FILES, LOCK_FILE, SIGN_IDENTITY_FILE };

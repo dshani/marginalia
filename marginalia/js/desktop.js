@@ -71,6 +71,12 @@
   var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   var TOAST_ID = "desktop";
   var KEY_TOAST_ID = "desktop-key";
+  var ZOTERO_API = "/api/zotero/books";         // the app's serve.py: the books' prompts, for Marginalia for Zotero (D34)
+  var ZOTERO_WAIT_MS = 2000;                    // after the last change, the page says the books again
+  var ZOTERO_KINDS = ["qa", "cloze", "note"];   // what counts: what the library counts as prompts (js/cache.js COUNTED)
+  var ZOTERO_EVENTS = ["prompt:saved", "prompt:deleted", "prompt:restored", "collection:changed", "collection:deleted",
+    "import:finished", "store:writer"];
+  var SHA256_RE = /^[0-9a-f]{64}$/i;
   var TEXT = {
     title: "Marginalia is now an app",
     body: "Your library in this browser stays here, unchanged. To move it into the app:",
@@ -98,7 +104,7 @@
   };
 
   // ---------------------------------------------------------------- state
-  var st, fetchFn = null, openerFn = null, checkMs = CHECK_MS, nowFn = null;
+  var st, fetchFn = null, openerFn = null, checkMs = CHECK_MS, nowFn = null, zoteroWait = ZOTERO_WAIT_MS;
   function init() {
     st = {
       mode: "unknown", version: null, started: null,
@@ -108,6 +114,9 @@
       moved: null,             // {at, file}: the move's backup, as this page remembers it when storage refuses (repair F1)
       persist: null,           // the persistent-storage ask (a promise), once
       appBound: false,         // the welcome card's focus / visibility listeners
+      pdfs: Promise.resolve(), // the PDFs macOS handed the app (D34), added one after the other
+      zoteroTimer: null,       // the books' prompts go to the server when it fires (D34, step 2)
+      zoteroSent: null,        // the body of the last POST /api/zotero/books that the server took
       dismissed: false,        // the welcome card was dismissed in this page (storage may refuse the flag)
       importing: false,        // the welcome card's import runs
       latest: null,            // {name, at}: the newest backup's file name and time (GET /api/backup/latest)
@@ -729,6 +738,8 @@
   function bindApp() {
     if (st.appBound) return;
     st.appBound = true;
+    bindOpenPdf();
+    bindZotero();
     try { if (typeof root.addEventListener === "function") root.addEventListener("focus", refreshWelcome); } catch (e) { /* ignore */ }
     try {
       var d = root.document;
@@ -736,6 +747,94 @@
         d.addEventListener("visibilitychange", function () { if (d.visibilityState === "visible") refreshWelcome(); });
       }
     } catch (e) { /* ignore */ }
+  }
+  // ---------------------------------------------------------------- PDFs from macOS (DECISIONS D34)
+  // window.marginaliaDesktop.onOpenPdf (the app's preload; its one ipc channel, from the app to the page only): a PDF
+  // that macOS handed the app (Finder's Open With, Zotero's "Open in Marginalia") comes as (name, bytes). Once the
+  // library has booted it is added as a dropped PDF, one after the other: M.library.addPdf opens the book in the
+  // reader, and a PDF already in the library opens its book (nothing is added twice). addPdf shows its own errors.
+  function bindOpenPdf() {
+    var d = null;
+    try { d = root.marginaliaDesktop; } catch (e) { d = null; }
+    if (!d || typeof d.onOpenPdf !== "function") return;
+    try { d.onOpenPdf(openPdf); } catch (e) { report("onOpenPdf", e); }
+  }
+  // openPdf(name, bytes) → Promise<the book | null>; never rejects.
+  function openPdf(name, bytes) {
+    var p = st.pdfs.then(function () {
+      var A = M.app;
+      return Promise.resolve(A && typeof A.boot === "function" ? A.boot() : null);
+    }).then(function () {
+      var L = M.library, F = root.File;
+      if (!L || typeof L.addPdf !== "function" || typeof F !== "function") return null;
+      if (!bytes || typeof ArrayBuffer === "undefined" || !ArrayBuffer.isView(bytes)) return null;
+      return L.addPdf(new F([bytes], str(name) || "document.pdf", { type: "application/pdf" }));
+    }).then(null, function (e) { if (!(e && e.code)) report("openPdf", e); return null; });
+    st.pdfs = p;
+    return p;
+  }
+  // ---------------------------------------------------------------- the books for Zotero (DECISIONS D34, step 2)
+  // In the app, the page that writes (M.store.writer()) tells the app's server how many prompts each book's PDF has:
+  // POST /api/zotero/books {books: [{sha256, prompts}]}, every live book with a SHA-256 (two books of one PDF add up
+  // there), counting its live prompts of ZOTERO_KINDS. Marginalia for Zotero reads that list and tags the Zotero items
+  // whose PDF it opened in the app. Once the library has booted, and ZOTERO_WAIT_MS after the last of ZOTERO_EVENTS;
+  // nothing goes when the list is the one the server took last. A failure is only logged: the next change tries again.
+  function bindZotero() {
+    var B = M.bus;
+    if (B && typeof B.on === "function") ZOTERO_EVENTS.forEach(function (ev) { B.on(ev, scheduleZotero); });
+    var A = M.app;
+    Promise.resolve(A && typeof A.boot === "function" ? A.boot() : null).then(scheduleZotero, noop);
+  }
+  function scheduleZotero() {
+    if (st.mode !== "app") return;
+    try { if (st.zoteroTimer != null) root.clearTimeout(st.zoteroTimer); } catch (e) { /* ignore */ }
+    try { st.zoteroTimer = root.setTimeout(function () { st.zoteroTimer = null; sendZotero(); }, zoteroWait); } catch (e) { st.zoteroTimer = null; }
+  }
+  // zoteroBooks() → [{sha256, prompts, book}] by SHA-256 (lower case), or null without the cache. `book` is the id of
+  // the book a link from Zotero opens (D34 (12)): of the books of that PDF, the one with the most prompts; on a tie
+  // the shorter id (the first book, not a separate copy: js/library.js gives those "<fingerprint>:<8 hex>"), then the
+  // first by id.
+  function zoteroBooks() {
+    var C = M.cache;
+    if (!C || typeof C.collections !== "function" || typeof C.prompts !== "function") return null;
+    var shaOf = {}, perBook = {}, counts = {}, best = {};
+    (C.collections() || []).forEach(function (c) {
+      if (!c || c.kind !== "book" || c.deletedAt != null || !SHA256_RE.test(str(c.sha256)) || !str(c.id)) return;
+      var sha = str(c.sha256).toLowerCase();
+      shaOf[c.id] = sha;
+      perBook[c.id] = 0;
+      if (!counts.hasOwnProperty(sha)) counts[sha] = 0;
+    });
+    (C.prompts() || []).forEach(function (p) {
+      if (!p || p.deletedAt != null || ZOTERO_KINDS.indexOf(p.kind) < 0) return;
+      var sha = shaOf.hasOwnProperty(p.collectionId) ? shaOf[p.collectionId] : null;
+      if (!sha) return;
+      counts[sha]++;
+      perBook[p.collectionId]++;
+    });
+    Object.keys(shaOf).forEach(function (id) {
+      var sha = shaOf[id], b = best[sha];
+      if (b === undefined || perBook[id] > perBook[b] || (perBook[id] === perBook[b] && (id.length < b.length ||
+        (id.length === b.length && id < b)))) best[sha] = id;
+    });
+    return Object.keys(counts).sort().map(function (sha) { return { sha256: sha, prompts: counts[sha], book: best[sha] }; });
+  }
+  // sendZotero() → Promise<true (sent) | false (nothing to send, or not now) | null (failed)>; never rejects
+  function sendZotero() {
+    if (st.mode !== "app") return Promise.resolve(false);
+    var S = M.store;
+    try { if (S && typeof S.writer === "function" && S.writer() !== true) return Promise.resolve(false); } catch (e) { return Promise.resolve(false); }
+    var books = zoteroBooks();
+    if (!books) return Promise.resolve(false);
+    var body = JSON.stringify({ books: books });
+    if (body === st.zoteroSent) return Promise.resolve(false);
+    var init = { method: "POST", headers: headers({ "Content-Type": "application/json", "X-Marginalia": "1" }), body: body,
+      cache: "no-store", credentials: "same-origin" };
+    return doFetch(ZOTERO_API, init).then(function (r) {
+      if (!r || !r.ok) { report("zotero", new Error("HTTP " + (r ? r.status : "error"))); return null; }
+      st.zoteroSent = body;
+      return true;
+    }, function (e) { report("zotero", e); return null; });
   }
   function importReason(e) {
     var code = e && e.code;
@@ -813,6 +912,9 @@
     welcome: welcome,
     importLatest: importLatest,
     dismissWelcome: dismissWelcome,
+    openPdf: openPdf,
+    sendZotero: sendZotero,
+    zoteroBooks: zoteroBooks,
     // pure helpers
     _pure: { whenText: whenText, dayLabel: dayLabel, hhmm: hhmm, madeAt: madeAt },
     CLIENT_HEADER: CLIENT_HEADER,
@@ -828,6 +930,7 @@
     _setOpener: function (fn) { openerFn = typeof fn === "function" ? fn : null; },
     _setCheckMs: function (ms) { checkMs = typeof ms === "number" && ms > 0 ? ms : CHECK_MS; },
     _setNow: function (fn) { nowFn = typeof fn === "function" ? fn : null; },
+    _setZoteroWait: function (ms) { zoteroWait = typeof ms === "number" && ms >= 0 ? ms : ZOTERO_WAIT_MS; },
     _reset: function () {
       var c = st.cover;
       if (c) {
@@ -838,7 +941,8 @@
           document.removeEventListener("focusin", c.onFocus, true);
         } catch (e) { /* ignore */ }
       }
-      fetchFn = null; openerFn = null; checkMs = CHECK_MS; nowFn = null;
+      if (st && st.zoteroTimer != null) { try { root.clearTimeout(st.zoteroTimer); } catch (e) { /* ignore */ } }
+      fetchFn = null; openerFn = null; checkMs = CHECK_MS; nowFn = null; zoteroWait = ZOTERO_WAIT_MS;
       init();
     }
   };
@@ -871,6 +975,13 @@
  * importLatest() → Promise<{ok, report, error}> (M.backup.latest → M.exporter.importJSON(text, {restoreSettings: true}) →
  * M.backup.idle() → toast "Paste your Anthropic API key again in Settings → LaTeX from snips (backups never contain it).";
  * a file named after the server's today is refused; errors toast "Could not import the newest backup — <reason>");
- * dismissWelcome() → true (localStorage "marginalia.welcomeDismissed" = "1"); event "desktop:state" (state()); constants
+ * dismissWelcome() → true (localStorage "marginalia.welcomeDismissed" = "1"); openPdf(name, bytes) → Promise<book|null> (D34:
+ * a PDF macOS handed the app, through window.marginaliaDesktop.onOpenPdf, which start() binds in app mode: after
+ * M.app.boot(), M.library.addPdf(new File([bytes], name)), one after the other; never rejects); zoteroBooks() →
+ * [{sha256, prompts, book}]|null (D34 step 2: by SHA-256, the live "qa", "cloze" and "note" prompts of its live books,
+ * and `book` the id of the one with the most, the shorter id on a tie, for Zotero's link to it);
+ * sendZotero() → Promise<true|false|null> (app mode, the writing page only: POST /api/zotero/books {books} with
+ * headers(), unless the server took that very list last; app mode binds it after boot and 2 s after the last
+ * prompt / collection / import / store:writer event; never rejects); event "desktop:state" (state()); constants
  * CLIENT_HEADER, APP_CLIENT, MOVE_CLIENT, CHECK_MS, WELCOME_KEY, MOVED_KEY, MODES, TEXT; _pure {whenText, dayLabel, hhmm,
- * madeAt}; test hooks _setFetch, _setOpener, _setCheckMs, _setNow, _reset. */
+ * madeAt}; test hooks _setFetch, _setOpener, _setCheckMs, _setNow, _setZoteroWait, _reset. */
